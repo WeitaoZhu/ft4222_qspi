@@ -19,6 +19,20 @@
 #define QSPI_ACCESS_WINDOW   0x02000000
 #define QSPI_SET_BASE_ADDR   0x02000004
 
+#define QSPI_WR_OP_MASK           (1<<7)
+#define QSPI_WRITE_OP             (1<<7)
+#define QSPI_READ_OP              (0<<7)
+
+#define QSPI_TRANS_TYPE_MASK      (3<<5)
+#define QSPI_TRANS_DATA           (0<<5)
+#define QSPI_READ_REQUEST         (1<<5)
+#define QSPI_TRANS_STATUS         (2<<5)
+#define QSPI_READ_DUMMY           (3<<5)
+
+#define QSPI_WAIT_CYCLE_MASK      (3<<3)
+
+#define QSPI_DATA_LENGTH_MASK     0x07
+
 static const char *const short_options = "hva:d:i:";
 static const struct option long_options[] = {
    {"help", no_argument, NULL, 'h'},
@@ -180,15 +194,146 @@ static int ft4222_qspi_switch_base(FT_HANDLE ftHandle)
     return success;
 }
 
-static int ft4222_qspi_write(FT_HANDLE ftHandle)
+static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint8_t *buffer, uint16_t bytes)
 {
-    int success = 0;
+    int success = 1;
+	uint8_t *writeBuffer =  NULL;
+	uint8_t cmd[4]= {0};
+	uint8_t data_length;
+	FT4222_STATUS  ft4222Status;
+	uint32_t sizeOfRead;
+
+	switch(bytes)
+	{
+		case 4:
+			data_length = 0;
+			break;
+		case 16:
+			data_length = 1;
+			break;
+		case 32:
+			data_length = 2;
+			break;
+		case 64:
+			data_length = 3;
+			break;
+		case 128:
+			data_length = 4;
+			break;
+		case 256:
+			data_length = 5;
+			break;
+		default:
+			break;
+	}
+	cmd[0] = QSPI_WRITE_OP | QSPI_TRANS_DATA | data_length;
+	cmd[1] = (offset >> 18) & 0xFF;
+	cmd[2] = (offset >> 10) & 0xFF;
+	cmd[3] = (offset >> 2) & 0xFF;
+
+	writeBuffer = malloc(sizeof(cmd) + bytes);
+
+	memcpy(writeBuffer, cmd, sizeof(cmd));
+	memcpy(writeBuffer + sizeof(cmd), buffer, bytes);
+
+	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
+						ftHandle,
+						NULL,
+						writeBuffer,
+						0,
+						bytes + sizeof(cmd),
+						0,
+						&sizeOfRead);
+
+    if (FT4222_OK != ft4222Status)
+    {
+        printf("FT4222_SPIMaster_MultiReadWrite failed (error %d)!\n",
+               ft4222Status);
+        success = 0;
+        goto exit;
+    }
+
+exit:
+	free(writeBuffer);
     return success;
 }
 
-static int ft4222_qspi_read(FT_HANDLE ftHandle)
+static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8_t *buffer, uint16_t bytes)
 {
-    int success = 0;
+    int success = 1;
+	uint8_t cmd[4]= {0};
+	uint8_t data_length;
+	FT4222_STATUS  ft4222Status;
+	uint32_t sizeOfRead;
+
+	switch(bytes)
+	{
+		case 4:
+			data_length = 0;
+			break;
+		case 16:
+			data_length = 1;
+			break;
+		case 32:
+			data_length = 2;
+			break;
+		case 64:
+			data_length = 3;
+			break;
+		case 128:
+			data_length = 4;
+			break;
+		case 256:
+			data_length = 5;
+			break;
+		default:
+			break;
+	}
+
+	//Send Read Request
+	cmd[0] = QSPI_READ_OP | QSPI_READ_REQUEST ;
+	cmd[1] = (offset >> 18) & 0xFF;
+	cmd[2] = (offset >> 10) & 0xFF
+	cmd[3] = (offset >> 2) & 0xFF;
+
+	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
+						ftHandle,
+						NULL, //readBuffer
+						cmd, //writeBuffer
+						0, //singleWriteBytes = 0
+						sizeof(cmd), //multiWriteBytes
+						0, //multiReadBytes = 0
+						&sizeOfRead);
+
+    if (FT4222_OK != ft4222Status)
+    {
+        printf("FT4222_SPIMaster_MultiReadWrite failed (error %d)!\n",
+               ft4222Status);
+        success = 0;
+        goto exit;
+    }
+
+    //Send Read Data
+	cmd[0] = QSPI_READ_OP | QSPI_TRANS_DATA | data_length;
+
+	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
+						ftHandle,
+						buffer, //readBuffer
+						cmd, //writeBuffer
+						0, //singleWriteBytes = 0
+						1, //multiWriteBytes
+						bytes, //multiReadBytes = 0
+						&sizeOfRead);
+
+    if (FT4222_OK != ft4222Status)
+    {
+        printf("FT4222_SPIMaster_MultiReadWrite failed (error %d)!\n",
+               ft4222Status);
+        success = 0;
+        goto exit;
+    }
+
+exit:
     return success;
 }
 
