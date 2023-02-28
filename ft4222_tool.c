@@ -188,12 +188,6 @@ static FT4222_SPIClock ft4222_convert_qspiclk(int division)
 	return ftQspiClk;
 }
 
-static int ft4222_qspi_switch_base(FT_HANDLE ftHandle)
-{
-    int success = 0;
-    return success;
-}
-
 static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint8_t *buffer, uint16_t bytes)
 {
     int success = 1;
@@ -293,7 +287,7 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 	//Send Read Request
 	cmd[0] = QSPI_READ_OP | QSPI_READ_REQUEST ;
 	cmd[1] = (offset >> 18) & 0xFF;
-	cmd[2] = (offset >> 10) & 0xFF
+	cmd[2] = (offset >> 10) & 0xFF;
 	cmd[3] = (offset >> 2) & 0xFF;
 
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
@@ -337,6 +331,20 @@ exit:
     return success;
 }
 
+static int ft4222_qspi_get_base(FT_HANDLE ftHandle, uint32_t *paddr)
+{
+    int success = 0;
+	uint8_t base_addr[4]= {0};
+
+	success = ft4222_qspi_read_nword(ftHandle, QSPI_SET_BASE_ADDR, base_addr, sizeof(base_addr));
+
+	*paddr = (base_addr[0] << 24) | (base_addr[1] << 16) | (base_addr[2] << 8) | base_addr[3];
+
+	printf("SPI2AHB Base Addr 0x%08x\n", *paddr);
+
+    return success;
+}
+
 int main(int argc, char **argv)
 {
    FT_STATUS                 ftStatus;
@@ -346,7 +354,7 @@ int main(int argc, char **argv)
    FT4222_SPIClock           ftQspiClk = CLK_DIV_128;  //Set QSPI CLK default CLK_DIV_128 80M/128=625Khz
    DWORD                     numDevs = 0;
    DWORD                     ft4222_LocId;
-   unsigned int              addr;
+   unsigned int              addr,spi2ahb_base;
    int                       i;
    int                       retCode = 0;
    int                       found4222 = 0;	
@@ -453,7 +461,6 @@ int main(int argc, char **argv)
 		 ftQspiClk = ft4222_convert_qspiclk(division);
          break;
       case 'i':
-         interval = atoi(optarg);
          break;
       case '?':   /* Invalid options */
          print_usage(stderr, argv[0], EXIT_FAILURE);
@@ -489,6 +496,8 @@ int main(int argc, char **argv)
                (int)ft4222Status);
         goto ft4222_exit;
     }
+
+	ft4222_qspi_get_base(ftHandle, &spi2ahb_base);
 
 ft4222_exit:
     (void)FT_Close(ftHandle);
