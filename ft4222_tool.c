@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <errno.h>
+#include <unistd.h>
 
 // SPI Master can assert SS0O in single mode
 // SS0O and SS1O in dual mode, and
@@ -196,7 +197,7 @@ static FT4222_SPIClock ft4222_convert_qspiclk(int division)
 
 static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint8_t *buffer, uint16_t bytes)
 {
-    int success = 1;
+    int success = 1, i =0;
 	uint8_t *writeBuffer =  NULL;
 	uint8_t cmd[4]= {0};
 	uint8_t data_length;
@@ -233,16 +234,24 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 
 	writeBuffer = malloc(sizeof(cmd) + bytes);
 
+	memset(writeBuffer,0x0,sizeof(cmd) + bytes);
 	memcpy(writeBuffer, cmd, sizeof(cmd));
 	memcpy(writeBuffer + sizeof(cmd), buffer, bytes);
 
+	#if 1
+	printf("writeBuffer:");
+	for(i=0;i < (sizeof(cmd) + bytes); i++ )
+		printf("%02x ", *(writeBuffer + i));
+	printf("\n");
+	#endif
+
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
 						ftHandle,
-						NULL,
+						NULL, //readBuffer
 						writeBuffer,
-						0,
-						bytes + sizeof(cmd),
-						0,
+						0, //singleWriteBytes = 0
+						bytes + sizeof(cmd), //multiWriteBytes
+						0, //multiReadBytes = 0
 						&sizeOfRead);
 
     if (FT4222_OK != ft4222Status)
@@ -252,6 +261,7 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
         success = 0;
         goto exit;
     }
+	//printf("sizeOfRead:%02x\n",sizeOfRead);
 
 exit:
 	free(writeBuffer);
@@ -291,11 +301,12 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 	}
 
 	//Send Read Request
-	cmd[0] = QSPI_READ_OP | QSPI_READ_REQUEST ;
+	cmd[0] = QSPI_READ_OP | QSPI_READ_REQUEST | data_length;
 	cmd[1] = (offset >> 18) & 0xFF;
 	cmd[2] = (offset >> 10) & 0xFF;
 	cmd[3] = (offset >> 2) & 0xFF;
 
+	printf("Read Request cmd:%02x %02x %02x %02x\n",cmd[0],cmd[1],cmd[2],cmd[3]);
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
 						ftHandle,
 						NULL, //readBuffer
@@ -312,10 +323,11 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
         success = 0;
         goto exit;
     }
-
+	//printf("sizeOfRead:%02x\n",sizeOfRead);
+	//sleep(0.5);
     //Send Read Data
 	cmd[0] = QSPI_READ_OP | QSPI_TRANS_DATA | data_length;
-
+	printf("Read Data cmd:%02x\n",cmd[0]);
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
 						ftHandle,
 						buffer, //readBuffer
@@ -332,6 +344,7 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
         success = 0;
         goto exit;
     }
+	//printf("sizeOfRead:%02x\n",sizeOfRead);
 
 exit:
     return success;
@@ -640,9 +653,9 @@ int main(int argc, char **argv)
     }
 
     ft4222Status = FT4222_SPI_SetDrivingStrength(ftHandle,
-                                                 DS_8MA,
-                                                 DS_8MA,
-                                                 DS_8MA);
+                                                 DS_16MA,
+                                                 DS_16MA,
+                                                 DS_16MA);
     if (FT4222_OK != ft4222Status)
     {
         printf("FT4222_SPI_SetDrivingStrength failed (error %d)\n",
