@@ -14,28 +14,56 @@
 // SPI Master can assert SS0O in single mode
 // SS0O and SS1O in dual mode, and
 // SS0O, SS1O, SS2O and SS3O in quad mode.
-#define SLAVE_SELECT(x) (1 << (x))
+#define SLAVE_SELECT(x)      (1 << (x))
 
-static const char *const short_options = "hvd:i:";
+#define QSPI_ACCESS_WINDOW   0x02000000
+#define QSPI_SET_BASE_ADDR   0x02000004
+
+static const char *const short_options = "hva:d:i:";
 static const struct option long_options[] = {
-   {"help", 0, NULL, 'h'},
-   {"version", 0, NULL, 'v'},
-   {"div", 1, NULL, 'd'},
-   {"interval", 1, NULL, 'i'},
-   {NULL, 0, NULL, 0},
+   {"help", no_argument, NULL, 'h'},
+   {"version", no_argument, NULL, 'v'},
+   {"addr", required_argument, NULL, 'a'},
+   {"div", required_argument, NULL, 'd'},
+   {"interval", required_argument, NULL, 'i'},
+   {NULL, no_argument, NULL, 0},
 };
- 
+
 static void print_usage(FILE * stream, char *app_name, int exit_code)
 {
    fprintf(stream, "Usage: %s [options]\n", app_name);
    fprintf(stream,
       " -h  --help                Display this usage information.\n"
       " -v  --version             Display FT4222 Chip version and LibFT4222 version.\n"
-      " -d  --dev <device_file>   Use <device_file> as watchdog device file.\n"
-      "                           The default device file is '/dev/watchdog'\n"
+      " -a  --Addr <address>      Setting QSPI access address.\n"
+      " -d  --div <division>      Setting QSPI CLOCK with 80MHz/<division>.\n"
       " -i  --interval <interval> Change the watchdog interval time\n");
  
    exit(exit_code);
+}
+
+static int get_int_number(const char *_str)
+{
+	char *end;
+	long int num;
+
+	num = strtol(_str, &end, 10);
+	if (*end != '\0')
+		return -1;
+
+	return num;
+}
+
+static unsigned int get_ul_number(const char *_str)
+{
+	char *end;
+	unsigned long addr;
+
+	addr = strtoul(_str, &end, 16);
+	if (*end != '\0')
+		return -1;
+
+	return addr;
 }
 
 static void showVersion(FT_HANDLE ftHandle)
@@ -146,22 +174,21 @@ static FT4222_SPIClock ft4222_convert_qspiclk(int division)
 	return ftQspiClk;
 }
 
+static int ft4222_qspi_switch_base(FT_HANDLE ftHandle)
+{
+    int success = 0;
+    return success;
+}
 
 static int ft4222_qspi_write(FT_HANDLE ftHandle)
 {
-    int                  success = 0;
-    FT_STATUS            ftStatus;
-    FT4222_Version       ft4222Version;
-    uint8                address;
-    char                *writeBuffer;
+    int success = 0;
+    return success;
+}
 
-exit:
-    if (ftHandle != (FT_HANDLE)NULL)
-    {
-        (void)FT4222_UnInitialize(ftHandle);
-        (void)FT_Close(ftHandle);
-    }
-
+static int ft4222_qspi_read(FT_HANDLE ftHandle)
+{
+    int success = 0;
     return success;
 }
 
@@ -174,6 +201,7 @@ int main(int argc, char **argv)
    FT4222_SPIClock           ftQspiClk = CLK_DIV_128;  //Set QSPI CLK default CLK_DIV_128 80M/128=625Khz
    DWORD                     numDevs = 0;
    DWORD                     ft4222_LocId;
+   unsigned int              addr;
    int                       i;
    int                       retCode = 0;
    int                       found4222 = 0;	
@@ -267,7 +295,14 @@ int main(int argc, char **argv)
          print_usage(stdout, argv[0], EXIT_SUCCESS);
       case 'v':
 		 showVersion(ftHandle);
-	 break;
+		break;
+      case 'a':
+	     addr = get_ul_number(optarg);
+		 if (addr > 0xFFFFFFFF) {
+			 printf("FT4222 QSPI Access Invalid Address 0x%08x\n",addr);
+		     goto ft4222_exit;
+		 }
+         break;
       case 'd':
 	     division = atoi(optarg);
 		 ftQspiClk = ft4222_convert_qspiclk(division);
