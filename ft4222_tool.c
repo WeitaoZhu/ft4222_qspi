@@ -10,11 +10,17 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <errno.h>
- 
+
+// SPI Master can assert SS0O in single mode
+// SS0O and SS1O in dual mode, and
+// SS0O, SS1O, SS2O and SS3O in quad mode.
+#define SLAVE_SELECT(x) (1 << (x))
+
 static const char *const short_options = "hvd:i:";
 static const struct option long_options[] = {
    {"help", 0, NULL, 'h'},
-   {"dev", 1, NULL, 'd'},
+   {"version", 0, NULL, 'v'},
+   {"div", 1, NULL, 'd'},
    {"interval", 1, NULL, 'i'},
    {NULL, 0, NULL, 0},
 };
@@ -32,22 +38,11 @@ static void print_usage(FILE * stream, char *app_name, int exit_code)
    exit(exit_code);
 }
 
-static void showVersion(DWORD locationId)
+static void showVersion(FT_HANDLE ftHandle)
 {
     FT_STATUS            ftStatus;
-    FT_HANDLE            ftHandle = (FT_HANDLE)NULL;
     FT4222_STATUS        ft4222Status;
     FT4222_Version       ft4222Version;
-
-    ftStatus = FT_OpenEx((PVOID)(uintptr_t)locationId, 
-                         FT_OPEN_BY_LOCATION, 
-                         &ftHandle);
-    if (ftStatus != FT_OK)
-    {
-        printf("FT_OpenEx failed (error %d)\n", 
-               (int)ftStatus);
-        return;
-    }
 
     // Get version of library and chip.    
     ft4222Status = FT4222_GetVersion(ftHandle,
@@ -63,14 +58,120 @@ static void showVersion(DWORD locationId)
                (unsigned int)ft4222Version.chipVersion,
                (unsigned int)ft4222Version.dllVersion);
     }
+	return;
+}
 
-    (void)FT_Close(ftHandle);
+static FT4222_SPIClock ft4222_convert_qspiclk(int division)
+{
+	FT4222_SPIClock           ftQspiClk = CLK_DIV_128;
+	switch (division) {
+		case 0:
+		case 1:
+				ftQspiClk = CLK_NONE;
+			break;
+		case 2:
+				ftQspiClk = CLK_DIV_2;
+			break;
+		case 4:
+				ftQspiClk = CLK_DIV_4;
+			break;
+		case 8:
+				ftQspiClk = CLK_DIV_8;
+			break;
+		case 16:
+				ftQspiClk = CLK_DIV_16;
+			break;
+		case 32:
+				ftQspiClk = CLK_DIV_32;
+			break;
+		case 64:
+				ftQspiClk = CLK_DIV_64;
+			break;
+		case 128:
+				ftQspiClk = CLK_DIV_128;
+			break;
+		case 256:
+				ftQspiClk = CLK_DIV_256;
+			break;
+		case 512:
+				ftQspiClk = CLK_DIV_512;
+			break;
+		default:
+			if (division == 3) {
+				printf("  FT4222 SPIClock not support div %d, setting %s as default!\n",division,"CLK_DIV_2");
+				ftQspiClk = CLK_DIV_2;
+			}
+
+			if (division > 4 && division < 8) {
+				printf("  FT4222 SPIClock not support div %d, setting %s as default!\n",division,"CLK_DIV_4");
+				ftQspiClk = CLK_DIV_4;
+			}
+
+			if (division > 8 && division < 16) {
+				printf("  FT4222 SPIClock not support div %d, setting %s as default!\n",division,"CLK_DIV_8");
+				ftQspiClk = CLK_DIV_8;
+			}
+
+			if (division > 16 && division < 32) {
+				printf("  FT4222 SPIClock not support div %d, setting %s as default!\n",division,"CLK_DIV_16");
+				ftQspiClk = CLK_DIV_16;
+			}
+
+			if (division > 32 && division < 64) {
+				printf("  FT4222 SPIClock not support div %d, setting %s as default!\n",division,"CLK_DIV_32");
+				ftQspiClk = CLK_DIV_32;
+			}
+
+			if (division > 64 && division < 128) {
+				printf("  FT4222 SPIClock not support div %d, setting %s as default!\n",division,"CLK_DIV_64");
+				ftQspiClk = CLK_DIV_64;
+			}
+
+			if (division > 128 && division < 256) {
+				printf("  FT4222 SPIClock not support div %d, setting %s as default!\n",division,"CLK_DIV_128");
+				ftQspiClk = CLK_DIV_128;
+			}
+
+			if (division > 256 && division < 512) {
+				printf("  FT4222 SPIClock not support div %d, setting %s as default!\n",division,"CLK_DIV_256");
+				ftQspiClk = CLK_DIV_256;
+			}
+
+			if (division > 512) {
+				printf("  FT4222 SPIClock not support div %d, setting %s as default!\n",division,"CLK_DIV_512");
+				ftQspiClk = CLK_DIV_512;
+			}
+			break;
+	}
+	return ftQspiClk;
+}
+
+
+static int ft4222_qspi_write(FT_HANDLE ftHandle)
+{
+    int                  success = 0;
+    FT_STATUS            ftStatus;
+    FT4222_Version       ft4222Version;
+    uint8                address;
+    char                *writeBuffer;
+
+exit:
+    if (ftHandle != (FT_HANDLE)NULL)
+    {
+        (void)FT4222_UnInitialize(ftHandle);
+        (void)FT_Close(ftHandle);
+    }
+
+    return success;
 }
 
 int main(int argc, char **argv)
 {
    FT_STATUS                 ftStatus;
-   FT_DEVICE_LIST_INFO_NODE *devInfo = NULL;
+   FT4222_STATUS             ft4222Status;
+   FT_HANDLE                 ftHandle = (FT_HANDLE)NULL;
+   FT_DEVICE_LIST_INFO_NODE  *devInfo = NULL;
+   FT4222_SPIClock           ftQspiClk = CLK_DIV_128;  //Set QSPI CLK default CLK_DIV_128 80M/128=625Khz
    DWORD                     numDevs = 0;
    DWORD                     ft4222_LocId;
    int                       i;
@@ -78,19 +179,19 @@ int main(int argc, char **argv)
    int                       found4222 = 0;	
 
    int fd;
-   int interval; 
+   int interval,division;
    int next_option;   /* getopt iteration var */
  
    /* Init variables */
    interval = 0;
+   division = 0;
    
-
     ftStatus = FT_CreateDeviceInfoList(&numDevs);
     if (ftStatus != FT_OK) 
     {
         printf("FT_CreateDeviceInfoList failed (error code %d)\n", 
                (int)ftStatus);
-        retCode = -10;
+        retCode = ftStatus;
         goto exit;
     }
     
@@ -117,7 +218,7 @@ int main(int argc, char **argv)
     {
         printf("FT_GetDeviceInfoList failed (error code %d)\n",
                (int)ftStatus);
-        retCode = -40;
+        retCode = ftStatus;
         goto exit;
     }
 
@@ -146,6 +247,17 @@ int main(int argc, char **argv)
         }
     }
 
+    ftStatus = FT_OpenEx((PVOID)(uintptr_t)ft4222_LocId,
+                         FT_OPEN_BY_LOCATION,
+                         &ftHandle);
+    if (ftStatus != FT_OK)
+    {
+        printf("FT_OpenEx failed (error %d)\n",
+               (int)ftStatus);
+		retCode = ftStatus;
+        goto exit;
+    }
+
    /* Parse options if any */
    do {
       next_option = getopt_long(argc, argv, short_options,
@@ -154,9 +266,11 @@ int main(int argc, char **argv)
       case 'h':
          print_usage(stdout, argv[0], EXIT_SUCCESS);
       case 'v':
-		 showVersion(ft4222_LocId);
+		 showVersion(ftHandle);
 	 break;
       case 'd':
+	     division = atoi(optarg);
+		 ftQspiClk = ft4222_convert_qspiclk(division);
          break;
       case 'i':
          interval = atoi(optarg);
@@ -170,6 +284,34 @@ int main(int argc, char **argv)
       }
    } while (next_option != -1);
    
+    // Configure the FT4222 as an SPI Master.
+    ft4222Status = FT4222_SPIMaster_Init(
+                        ftHandle,
+                        SPI_IO_QUAD, // 4 channel
+                        ftQspiClk, // 80 MHz / 128 == 625KHz
+                        CLK_IDLE_LOW, // clock idles at logic 0
+                        CLK_LEADING, // data captured on rising edge
+                        SLAVE_SELECT(0)); // Use SS0O for slave-select
+    if (FT4222_OK != ft4222Status)
+    {
+        printf("FT4222_SPIMaster_Init failed (error %d)\n",
+               (int)ft4222Status);
+        goto ft4222_exit;
+    }
+
+    ft4222Status = FT4222_SPI_SetDrivingStrength(ftHandle,
+                                                 DS_8MA,
+                                                 DS_8MA,
+                                                 DS_8MA);
+    if (FT4222_OK != ft4222Status)
+    {
+        printf("FT4222_SPI_SetDrivingStrength failed (error %d)\n",
+               (int)ft4222Status);
+        goto ft4222_exit;
+    }
+
+ft4222_exit:
+    (void)FT_Close(ftHandle);
 exit:
     free(devInfo);
     return retCode;
