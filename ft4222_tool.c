@@ -33,8 +33,9 @@
 
 #define QSPI_DATA_LENGTH_MASK     0x07
 
-static const char *const short_options = "hvrwa:D:d:";
+static const char *const short_options = "bhvrwa:D:d:";
 static const struct option long_options[] = {
+   {"base", no_argument, NULL, 'b'},
    {"help", no_argument, NULL, 'h'},
    {"version", no_argument, NULL, 'v'},
    {"addr", required_argument, NULL, 'a'},
@@ -51,6 +52,7 @@ static void print_usage(FILE * stream, char *app_name, int exit_code)
    fprintf(stream,
       " -h  --help                Display this usage information.\n"
       " -v  --version             Display FT4222 Chip version and LibFT4222 version.\n"
+      " -b  --base                Display SPI2AHB Base Address.\n"
       " -a  --Addr <address>      Setting QSPI access address.\n"
       " -D  --Data <value>        Setting QSPI Send data value.\n"
       " -d  --div <division>      Setting QSPI CLOCK with 80MHz/<division>.\n"
@@ -479,7 +481,7 @@ int main(int argc, char **argv)
    int                       found4222 = 0;	
 
    int fd;
-   int division,write_op,read_op,addr_set,data_set;
+   int division,write_op,read_op,addr_set,data_set,show_base;
    int next_option;   /* getopt iteration var */
  
    /* Init variables */
@@ -489,6 +491,7 @@ int main(int argc, char **argv)
    addr_set = 0;
    data_set = 0;
    tmp_value = 0;
+   show_base =0;
    
     ftStatus = FT_CreateDeviceInfoList(&numDevs);
     if (ftStatus != FT_OK) 
@@ -567,6 +570,9 @@ int main(int argc, char **argv)
       next_option = getopt_long(argc, argv, short_options,
                  long_options, NULL);
       switch (next_option) {
+      case 'b':
+			show_base = 1;
+		 break;
       case 'h':
          print_usage(stdout, argv[0], EXIT_SUCCESS);
       case 'v':
@@ -644,6 +650,10 @@ int main(int argc, char **argv)
         goto ft4222_exit;
     }
 
+	if (show_base) {
+		ft4222_qspi_get_base(ftHandle, &tmp_value);
+		printf("QSPI2AHB Current Base Address 0x%08x\n", tmp_value);
+	}
 	if (write_op) {
 		ft4222_qspi_memory_write_word(ftHandle, addr, data_value);
 	}
