@@ -40,7 +40,6 @@
 
 #define QSPI_DATA_LENGTH_MASK     0x07
 
-uint8_t * volatile bufPtr;
 static int debug_printf=0;
 static const char *const short_options = "bhvrwga:D:d:p:s:S:";
 static const struct option long_options[] = {
@@ -620,14 +619,12 @@ exit:
     return success;
 }
 
-
 static int ft4222_qspi_cmd_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t size)
 {
     int success = 1, row =0, col =0;
 	uint8_t *buffer = NULL;
 	uint32_t start_base  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 	uint32_t end_base  =((mem_addr + size)/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
-	uint32_t offset_addr=(mem_addr%QSPI_ACCESS_WINDOW);
 
 	if (size > QSPI_DUMP_CMD_MAX) {
         printf("QSPI CMD Dump size %d exceed max %d.\n",(int)size ,QSPI_DUMP_CMD_MAX);
@@ -663,6 +660,34 @@ exit:
     return success;
 }
 
+static int ft4222_qspi_cmd_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *buffer, uint16_t size)
+{
+    int success = 1;
+	uint32_t start_base  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
+	uint32_t end_base  =((mem_addr + size)/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
+
+	if (size > QSPI_DUMP_CMD_MAX) {
+        printf("QSPI CMD Write size %d exceed max %d.\n",(int)size ,QSPI_DUMP_CMD_MAX);
+		success = 0;
+        goto exit;
+	}
+
+	if ((start_base != end_base) && ((mem_addr + size)%QSPI_ACCESS_WINDOW)){
+        printf("QSPI CMD Dump from 0x%08x to 0x%08x, exceed next 32M windows 0x%08x.\n",mem_addr, (mem_addr + size), end_base);
+		success = 0;
+        goto exit;
+	}
+
+	if (!ft4222_qspi_memory_write(ftHandle, mem_addr, buffer, size))
+	{
+        printf("Failed to ft4222_qspi_memory_read 4 bytes.\n");
+		success = 0;
+        goto exit;
+	}
+	msleep(5);
+exit:
+    return success;
+}
 
 static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t size)
 {
@@ -718,16 +743,46 @@ static int ft4222_qspi_memory_write_word(FT_HANDLE ftHandle, uint32_t mem_addr, 
 
 static int ft4222_qspi_memory_write_string(FT_HANDLE ftHandle, uint32_t mem_addr, char *strbuf)
 {
-	int data_len, cnt;
-	data_len = strlen(strbuf)/2;
-	bufPtr  = malloc(data_len);
-	hex2data(bufPtr,strbuf,data_len);
-	printf("data_len: %d \n",data_len);
+    int success = 1;
+	int data_len, malloc_len, cnt;
+	uint8_t *bufPtr = NULL;
 
-	for(cnt = 0; cnt < data_len; cnt++)
-		printf("0x%02x ",bufPtr[cnt]);
-	printf("\n");
-	free(bufPtr);
+	data_len = strlen(strbuf)/2;
+
+	if (data_len <= 4)
+		malloc_len = 4;
+	else if ((data_len > 4) && (data_len <= 8))
+		malloc_len = 8;
+	else if ((data_len > 8) && (data_len <= 16))
+		malloc_len = 16;
+	else if ((data_len > 16) && (data_len <= 32))
+		malloc_len = 32;
+	else if ((data_len > 32) && (data_len <= 64))
+		malloc_len = 64;
+	else if ((data_len > 64) && (data_len <= 128))
+		malloc_len = 128;
+	else if ((data_len > 128) && (data_len <= 256))
+		malloc_len = 256;
+	else {
+		printf("QSPI Write with string length %d exceed max 256.\n",data_len);
+		success = 0;
+		goto exit;
+	}
+
+	bufPtr  = malloc(malloc_len);
+	hex2data(bufPtr,strbuf,data_len);
+
+	if (!ft4222_qspi_cmd_write(ftHandle, mem_addr, bufPtr, malloc_len))
+	{
+		printf("Failed to ft4222_qspi_cmd_write.\n");
+		success = 0;
+		goto exit;
+	}
+	msleep(5);
+exit:
+	if (bufPtr != NULL)
+		free(bufPtr);
+    return success;
 }
 
 
@@ -749,7 +804,7 @@ int main(int argc, char **argv)
    int                       found4222 = 0;	
 
    int fd;
-   int division,write_op,read_op,addr_set,data_set,show_base,show_ft4222_ver,dump_show,dump_size;
+   int division,write_op,read_op,addr_set,data_set,show_base,show_ft4222_ver,dump_show,dump_size,string_send;
    int next_option;   /* getopt iteration var */
  
    /* Init variables */
@@ -763,6 +818,7 @@ int main(int argc, char **argv)
    show_base =0;
    show_ft4222_ver =0;
    dump_show = 0;
+   string_send =0;
    
     ftStatus = FT_CreateDeviceInfoList(&numDevs);
     if (ftStatus != FT_OK) 
@@ -861,6 +917,7 @@ int main(int argc, char **argv)
 			strLength = strlen(optarg);
 			strbuf = malloc(strLength);
 			strcpy(strbuf,replace(optarg," ",""));
+			string_send = 1;
 			printf("-s %s \n",strbuf);
          break;
       case 'S':
@@ -926,6 +983,17 @@ int main(int argc, char **argv)
 			goto ft4222_exit;
 	    }
     }
+
+    if (string_send)
+    {
+	    if (addr_set == 0)
+	    {
+			printf("ft4222 work in string write mode,addr is missing\n");
+			retCode = -30;
+			goto ft4222_exit;
+	    }
+    }
+
     // Configure the FT4222 as an SPI Master.
     ft4222Status = FT4222_SPIMaster_Init(
                         ftHandle,
@@ -969,7 +1037,9 @@ int main(int argc, char **argv)
 		ft4222_qspi_memory_dump(ftHandle, addr, dump_size);
 	}
 
-	ft4222_qspi_memory_write_string(ftHandle, addr, strbuf);
+	if (string_send) {
+		ft4222_qspi_memory_write_string(ftHandle, addr, strbuf);
+	}
 
 ft4222_exit:
     (void)FT_Close(ftHandle);
