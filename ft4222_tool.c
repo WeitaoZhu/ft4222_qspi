@@ -20,7 +20,9 @@
 #define QSPI_SYS_CLK         80000000
 #define QSPI_ACCESS_WINDOW   0x02000000
 #define QSPI_SET_BASE_ADDR   0x02000004
-#define QSPI_DUMP_MAX_SIZE   4096
+#define QSPI_DUMP_MAX_SIZE   256
+#define QSPI_DUMP_COL_NUM    4
+#define QSPI_DUMP_WORD       4
 #define QSPI_MULTI_WR_DELAY  10
 
 #define QSPI_WR_OP_MASK           (1<<7)
@@ -94,6 +96,18 @@ static unsigned int get_ul_number(const char *_str)
 
 	return addr;
 }
+
+static uint32_t swapLong(uint32_t ldata)
+{
+   uint32_t temp;
+
+   temp =   ((ldata & 0xFF000000U) >> 24)
+          | ((ldata & 0x00FF0000U) >> 8 )
+          | ((ldata & 0x0000FF00U) << 8 )
+          | ((ldata & 0x000000FFU) << 24);
+   return(temp);
+}
+
 
 static void msleep(unsigned int msecs)
 {
@@ -516,7 +530,8 @@ exit:
 
 static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t size)
 {
-    int success = 1;
+    int success = 1, row =0, col =0;
+	uint8_t *buffer = NULL;
 	uint32_t start_base  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 	uint32_t end_base  =((mem_addr + size)/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 	uint32_t offset_addr=(mem_addr%QSPI_ACCESS_WINDOW);
@@ -531,6 +546,25 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
         printf("QSPI Dump memory from 0x%08x to 0x%08x, exceed next 32M windows 0x%08x.\n",mem_addr, (mem_addr + size), end_base);
 		success = 0;
         goto exit;
+	}
+
+	buffer = malloc(size);
+
+	if (!ft4222_qspi_memory_read(ftHandle, mem_addr, buffer, size))
+	{
+        printf("Failed to ft4222_qspi_memory_read 4 bytes.\n");
+		success = 0;
+        goto exit;
+	}
+
+	for(row=0; row < size/(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD); row++)
+	{
+		printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
+		for(col=0; col < QSPI_DUMP_COL_NUM; col++)
+		{
+			printf("%08x ", swapLong(*((uint32_t *)(buffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
+		}
+		printf("\n");
 	}
 
 exit:
@@ -563,7 +597,7 @@ int main(int argc, char **argv)
    int                       found4222 = 0;	
 
    int fd;
-   int division,write_op,read_op,addr_set,data_set,show_base,show_ft4222_ver,dump_show;
+   int division,write_op,read_op,addr_set,data_set,show_base,show_ft4222_ver,dump_show,dump_size;
    int next_option;   /* getopt iteration var */
  
    /* Init variables */
@@ -665,6 +699,7 @@ int main(int argc, char **argv)
       case 'h':
          print_usage(stdout, argv[0], EXIT_SUCCESS);
       case 'p':
+			dump_size = atoi(optarg);
 			dump_show = 1;
          break;
       case 'r':
@@ -721,6 +756,16 @@ int main(int argc, char **argv)
 			goto ft4222_exit;
 	    }
     }
+
+    if (dump_show)
+    {
+	    if (addr_set == 0)
+	    {
+			printf("ft4222 work in dump mode,addr is missing\n");
+			retCode = -30;
+			goto ft4222_exit;
+	    }
+    }
     // Configure the FT4222 as an SPI Master.
     ft4222Status = FT4222_SPIMaster_Init(
                         ftHandle,
@@ -761,7 +806,7 @@ int main(int argc, char **argv)
 	}
 
 	if (dump_show) {
-
+		ft4222_qspi_memory_dump(ftHandle, addr, dump_size);
 	}
 
 ft4222_exit:
