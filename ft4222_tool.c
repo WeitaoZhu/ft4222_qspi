@@ -36,7 +36,7 @@
 #define QSPI_DATA_LENGTH_MASK     0x07
 
 static int debug_printf=0;
-static const char *const short_options = "bhvrwga:D:d:";
+static const char *const short_options = "bhvrwga:D:d:p:";
 static const struct option long_options[] = {
    {"base", no_argument, NULL, 'b'},
    {"help", no_argument, NULL, 'h'},
@@ -44,6 +44,7 @@ static const struct option long_options[] = {
    {"addr", required_argument, NULL, 'a'},
    {"Data", required_argument, NULL, 'D'},
    {"div", required_argument, NULL, 'd'},
+   {"dump", required_argument, NULL, 'p'},
    {"debug", no_argument, NULL, 'g'},
    {"write", no_argument, NULL, 'w'},
    {"read", no_argument, NULL, 'r'},
@@ -54,15 +55,16 @@ static void print_usage(FILE * stream, char *app_name, int exit_code)
 {
    fprintf(stream, "Usage: %s [options]\n", app_name);
    fprintf(stream,
-      " -h  --help                Display this usage information.\n"
-      " -v  --version             Display FT4222 Chip version and LibFT4222 version.\n"
-      " -b  --base                Display SPI2AHB Base Address.\n"
       " -a  --Addr <address>      Setting QSPI access address.\n"
-      " -D  --Data <value>        Setting QSPI Send data value.\n"
+      " -b  --base                Display SPI2AHB Base Address.\n"
       " -d  --div <division>      Setting QSPI CLOCK with 80MHz/<division>.\n"
+      " -D  --Data <value>        Setting QSPI Send data value.\n"
       " -g  --debug               Display QSPI W/R Send Data Info.\n"
+      " -h  --help                Display this usage information.\n"
+      " -p  --dump <size>         Dump Address size Context.\n"
+	  " -r  --read                Setting QSPI Read Operation.\n"
       " -w  --write               Setting QSPI Write Operation.\n"
-	  " -r  --read                Setting QSPI Read Operation.\n");
+      " -v  --version             Display FT4222 Chip version and LibFT4222 version.\n");
  
    exit(exit_code);
 }
@@ -267,7 +269,7 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
         success = 0;
         goto exit;
     }
-
+	sleep(0.5);
 exit:
 	free(writeBuffer);
     return success;
@@ -487,6 +489,16 @@ exit:
     return success;
 }
 
+
+static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint32_t size)
+{
+    int success = 1;
+
+exit:
+    return success;
+}
+
+
 static int ft4222_qspi_memory_write_word(FT_HANDLE ftHandle, uint32_t mem_addr, uint32_t mem_data)
 {
 	uint8_t  qspi_data[4]= {0};
@@ -512,7 +524,7 @@ int main(int argc, char **argv)
    int                       found4222 = 0;	
 
    int fd;
-   int division,write_op,read_op,addr_set,data_set,show_base;
+   int division,write_op,read_op,addr_set,data_set,show_base,show_ft4222_ver,dump_show;
    int next_option;   /* getopt iteration var */
  
    /* Init variables */
@@ -524,6 +536,8 @@ int main(int argc, char **argv)
    data_set = 0;
    tmp_value = 0;
    show_base =0;
+   show_ft4222_ver =0;
+   dump_show = 0;
    
     ftStatus = FT_CreateDeviceInfoList(&numDevs);
     if (ftStatus != FT_OK) 
@@ -586,17 +600,6 @@ int main(int argc, char **argv)
         }
     }
 
-    ftStatus = FT_OpenEx((PVOID)(uintptr_t)ft4222_LocId,
-                         FT_OPEN_BY_LOCATION,
-                         &ftHandle);
-    if (ftStatus != FT_OK)
-    {
-        printf("FT_OpenEx failed (error %d)\n",
-               (int)ftStatus);
-		retCode = ftStatus;
-        goto exit;
-    }
-
    /* Parse options if any */
    do {
       next_option = getopt_long(argc, argv, short_options,
@@ -605,11 +608,6 @@ int main(int argc, char **argv)
       case 'b':
 			show_base = 1;
 		 break;
-      case 'h':
-         print_usage(stdout, argv[0], EXIT_SUCCESS);
-      case 'v':
-		 showVersion(ftHandle);
-		break;
       case 'a':
 	     addr = get_ul_number(optarg);
 		 addr_set = 1;
@@ -621,16 +619,23 @@ int main(int argc, char **argv)
       case 'd':
 	     division = atoi(optarg);
 		 ftQspiClk = ft4222_convert_qspiclk(division);
-
          break;
       case 'g':
 			debug_printf = 1;
          break;
-      case 'w':
-			write_op = 1;
+      case 'h':
+         print_usage(stdout, argv[0], EXIT_SUCCESS);
+      case 'p':
+			dump_show = 1;
          break;
       case 'r':
 			read_op = 1;
+         break;
+      case 'v':
+			show_ft4222_ver = 1;
+		break;
+      case 'w':
+			write_op = 1;
          break;
       case '?':   /* Invalid options */
          print_usage(stderr, argv[0], EXIT_FAILURE);
@@ -640,28 +645,43 @@ int main(int argc, char **argv)
          abort();
       }
    } while (next_option != -1);
-   
-	printf("[QSPI CLK] %d Hz\n",QSPI_SYS_CLK/division);
 
-   if (write_op)
-   {
-	   if ((addr_set == 0) || (data_set == 0))
-	   {
+    ftStatus = FT_OpenEx((PVOID)(uintptr_t)ft4222_LocId,
+                         FT_OPEN_BY_LOCATION,
+                         &ftHandle);
+    if (ftStatus != FT_OK)
+    {
+        printf("FT_OpenEx failed (error %d)\n",
+               (int)ftStatus);
+		retCode = ftStatus;
+        goto exit;
+    }
+
+	if (show_ft4222_ver)
+		showVersion(ftHandle);
+
+	if (debug_printf)
+		printf("[QSPI CLK] %d Hz\n",QSPI_SYS_CLK/division);
+
+    if (write_op)
+    {
+	    if ((addr_set == 0) || (data_set == 0))
+	    {
 			printf("ft4222 work in write mode,%s %s\n",(addr_set ? "":"addr is missing"),(data_set ? "":"data is missing"));
 			retCode = -20;
 			goto ft4222_exit;
-	   }
-   }
+	    }
+    }
 
-   if (read_op)
-   {
-	   if (addr_set == 0)
-	   {
+    if (read_op)
+    {
+	    if (addr_set == 0)
+	    {
 			printf("ft4222 work in write mode,addr is missing\n");
 			retCode = -20;
 			goto ft4222_exit;
-	   }
-   }
+	    }
+    }
     // Configure the FT4222 as an SPI Master.
     ft4222Status = FT4222_SPIMaster_Init(
                         ftHandle,
@@ -678,9 +698,9 @@ int main(int argc, char **argv)
     }
 
     ft4222Status = FT4222_SPI_SetDrivingStrength(ftHandle,
-                                                 DS_16MA,
-                                                 DS_16MA,
-                                                 DS_16MA);
+                                                 DS_12MA,
+                                                 DS_12MA,
+                                                 DS_12MA);
     if (FT4222_OK != ft4222Status)
     {
         printf("FT4222_SPI_SetDrivingStrength failed (error %d)\n",
@@ -699,6 +719,10 @@ int main(int argc, char **argv)
 	if (read_op) {
 		ft4222_qspi_memory_read_word(ftHandle, addr, &tmp_value);
 		printf("%08x : %08x\n", addr, tmp_value);
+	}
+
+	if (dump_show) {
+
 	}
 
 ft4222_exit:
