@@ -20,7 +20,7 @@
 #define QSPI_SYS_CLK         80000000
 #define QSPI_ACCESS_WINDOW   0x02000000
 #define QSPI_SET_BASE_ADDR   0x02000004
-#define QSPI_DUMP_MAX_SIZE   256
+#define QSPI_DUMP_MAX_SIZE   128
 #define QSPI_DUMP_COL_NUM    4
 #define QSPI_DUMP_WORD       4
 #define QSPI_MULTI_WR_DELAY  10
@@ -566,6 +566,7 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
 		}
 		printf("\n");
 	}
+	printf("\n");
 
 exit:
     return success;
