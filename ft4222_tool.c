@@ -40,19 +40,22 @@
 
 #define QSPI_DATA_LENGTH_MASK     0x07
 
+uint8_t * volatile bufPtr;
 static int debug_printf=0;
-static const char *const short_options = "bhvrwga:D:d:p:";
+static const char *const short_options = "bhvrwga:D:d:p:s:S:";
 static const struct option long_options[] = {
    {"base", no_argument, NULL, 'b'},
    {"help", no_argument, NULL, 'h'},
    {"version", no_argument, NULL, 'v'},
    {"addr", required_argument, NULL, 'a'},
-   {"Data", required_argument, NULL, 'D'},
    {"div", required_argument, NULL, 'd'},
-   {"dump", required_argument, NULL, 'p'},
+   {"Data", required_argument, NULL, 'D'},
    {"debug", no_argument, NULL, 'g'},
-   {"write", no_argument, NULL, 'w'},
+   {"dump", required_argument, NULL, 'p'},
    {"read", no_argument, NULL, 'r'},
+   {"string", required_argument, NULL, 's'},
+   {"script", required_argument, NULL, 'S'},
+   {"write", no_argument, NULL, 'w'},
    {NULL, no_argument, NULL, 0},
 };
 
@@ -68,6 +71,8 @@ static void print_usage(FILE * stream, char *app_name, int exit_code)
       " -h  --help                Display this usage information.\n"
       " -p  --dump <size>         Dump Address size Context.\n"
 	  " -r  --read                Setting QSPI Read Operation.\n"
+      " -s  --string <string>     QSPI Write with string.\n"
+      " -S  --script <text file>  QSPI Write with file context.\n"
       " -w  --write               Setting QSPI Write Operation.\n"
       " -v  --version             Display FT4222 Chip version and LibFT4222 version.\n");
  
@@ -114,6 +119,93 @@ static void msleep(unsigned int msecs)
 {
 	usleep(msecs*1000);
 }
+
+const char * replace(
+    char * original,
+    char const * const pattern,
+    char const * const replacement
+) {
+  size_t const replen = strlen(replacement);
+  size_t const patlen = strlen(pattern);
+  size_t const orilen = strlen(original);
+
+  size_t patcnt = 0;
+  const char * oriptr;
+  const char * patloc;
+
+  // find how many times the pattern occurs in the original string
+  for (oriptr = original; patloc = strstr(oriptr, pattern); oriptr = patloc + patlen)
+  {
+    patcnt++;
+  }
+
+  {
+    // allocate memory for the new string
+    size_t const retlen = orilen + patcnt * (replen - patlen);
+    char * const returned = (char *) malloc( sizeof(char) * (retlen + 1) );
+
+    if (returned != NULL)
+    {
+      // copy the original string,
+      // replacing all the instances of the pattern
+      char * retptr = returned;
+      for (oriptr = original; patloc = strstr(oriptr, pattern); oriptr = patloc + patlen)
+      {
+        size_t const skplen = patloc - oriptr;
+        // copy the section until the occurence of the pattern
+        strncpy(retptr, oriptr, skplen);
+        retptr += skplen;
+        // copy the replacement
+        strncpy(retptr, replacement, replen);
+        retptr += replen;
+      }
+      // copy the rest of the string.
+      strcpy(retptr, oriptr);
+    }
+    strcpy(original,returned);
+    free (returned);
+    return original;
+  }
+}
+
+static int hex2data(unsigned char *data, const unsigned char *hexstring, unsigned int len)
+{
+    unsigned const char *pos = hexstring;
+    char *endptr;
+    size_t count = 0;
+
+    if ((hexstring[0] == '\0') || (strlen(hexstring) % 2)) {
+        //hexstring contains no data
+        //or hexstring has an odd length
+        return -1;
+    }
+
+    for(count = 0; count < len; count++) {
+        char buf[5] = {'0', 'x', pos[0], pos[1], 0};
+        data[count] = strtol(buf, &endptr, 0);
+        pos += 2 * sizeof(char);
+
+        if (endptr[0] != '\0') {
+            //non-hexadecimal character encountered
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int removeScriptComments(char *s, char CommentChar) {
+ int i;
+ while(*s){
+   //if ((*s=='/') || (*s=='#') || (*s==0xA) || (*s==0xD) || (*s==0x0)) {
+   if ((*s=='/') || (*s==CommentChar) || (*s==0xA) || (*s==0xD) || (*s==0x0)) {
+     *s=0;
+     break;
+   }
+   s++;
+ }
+ return 0;
+}
+
 static void showVersion(FT_HANDLE ftHandle)
 {
     FT_STATUS            ftStatus;
@@ -614,7 +706,6 @@ exit:
     return success;
 }
 
-
 static int ft4222_qspi_memory_write_word(FT_HANDLE ftHandle, uint32_t mem_addr, uint32_t mem_data)
 {
 	uint8_t  qspi_data[4]= {0};
@@ -625,6 +716,21 @@ static int ft4222_qspi_memory_write_word(FT_HANDLE ftHandle, uint32_t mem_addr, 
 	return ft4222_qspi_memory_write(ftHandle, mem_addr, qspi_data, 4);
 }
 
+static int ft4222_qspi_memory_write_string(FT_HANDLE ftHandle, uint32_t mem_addr, char *strbuf)
+{
+	int data_len, cnt;
+	data_len = strlen(strbuf)/2;
+	bufPtr  = malloc(data_len);
+	hex2data(bufPtr,strbuf,data_len);
+	printf("data_len: %d \n",data_len);
+
+	for(cnt = 0; cnt < data_len; cnt++)
+		printf("0x%02x ",bufPtr[cnt]);
+	printf("\n");
+	free(bufPtr);
+}
+
+
 int main(int argc, char **argv)
 {
    FT_STATUS                 ftStatus;
@@ -634,6 +740,9 @@ int main(int argc, char **argv)
    FT4222_SPIClock           ftQspiClk = 0;
    DWORD                     numDevs = 0;
    DWORD                     ft4222_LocId;
+   size_t                    strLength;
+   char                      *strbuf = NULL;
+   char                      *scriptFile= NULL;
    unsigned int              addr,spi2ahb_base,data_value,tmp_value;
    int                       i;
    int                       retCode = 0;
@@ -748,6 +857,14 @@ int main(int argc, char **argv)
       case 'r':
 			read_op = 1;
          break;
+      case 's':
+			strLength = strlen(optarg);
+			strbuf = malloc(strLength);
+			strcpy(strbuf,replace(optarg," ",""));
+			printf("-s %s \n",strbuf);
+         break;
+      case 'S':
+         break;
       case 'v':
 			show_ft4222_ver = 1;
 		break;
@@ -852,9 +969,13 @@ int main(int argc, char **argv)
 		ft4222_qspi_memory_dump(ftHandle, addr, dump_size);
 	}
 
+	ft4222_qspi_memory_write_string(ftHandle, addr, strbuf);
+
 ft4222_exit:
     (void)FT_Close(ftHandle);
 exit:
+	if (strbuf != NULL)
+		free(strbuf);
     free(devInfo);
     return retCode;
 }
