@@ -20,7 +20,8 @@
 #define QSPI_SYS_CLK         80000000
 #define QSPI_ACCESS_WINDOW   0x02000000
 #define QSPI_SET_BASE_ADDR   0x02000004
-#define QSPI_DUMP_MAX_SIZE   128
+#define QSPI_DUMP_CMD_MAX    128
+#define QSPI_DUMP_MAX_SIZE   4096
 #define QSPI_DUMP_COL_NUM    4
 #define QSPI_DUMP_WORD       4
 #define QSPI_MULTI_WR_DELAY  10
@@ -528,7 +529,7 @@ exit:
 }
 
 
-static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t size)
+static int ft4222_qspi_cmd_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t size)
 {
     int success = 1, row =0, col =0;
 	uint8_t *buffer = NULL;
@@ -536,14 +537,14 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
 	uint32_t end_base  =((mem_addr + size)/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 	uint32_t offset_addr=(mem_addr%QSPI_ACCESS_WINDOW);
 
-	if (size > QSPI_DUMP_MAX_SIZE) {
-        printf("QSPI Dump memory size %d exceed max %d.\n",(int)size ,QSPI_DUMP_MAX_SIZE);
+	if (size > QSPI_DUMP_CMD_MAX) {
+        printf("QSPI CMD Dump size %d exceed max %d.\n",(int)size ,QSPI_DUMP_CMD_MAX);
 		success = 0;
         goto exit;
 	}
 
 	if ((start_base != end_base) && ((mem_addr + size)%QSPI_ACCESS_WINDOW)){
-        printf("QSPI Dump memory from 0x%08x to 0x%08x, exceed next 32M windows 0x%08x.\n",mem_addr, (mem_addr + size), end_base);
+        printf("QSPI CMD Dump from 0x%08x to 0x%08x, exceed next 32M windows 0x%08x.\n",mem_addr, (mem_addr + size), end_base);
 		success = 0;
         goto exit;
 	}
@@ -566,7 +567,48 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
 		}
 		printf("\n");
 	}
-	printf("\n");
+exit:
+    return success;
+}
+
+
+static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t size)
+{
+    int success = 1, cmd_time;
+	uint32_t qspi_addr = 0;
+
+	if (size > QSPI_DUMP_MAX_SIZE) {
+        printf("QSPI Dump memory size %d exceed max %d.\n",(int)size ,QSPI_DUMP_MAX_SIZE);
+		success = 0;
+        goto exit;
+	}
+
+	cmd_time = (size/QSPI_DUMP_CMD_MAX);
+
+	for (cmd_time = 0; cmd_time < (size/QSPI_DUMP_CMD_MAX) ; cmd_time++)
+	{
+		qspi_addr = mem_addr + (QSPI_DUMP_CMD_MAX * cmd_time);
+
+		if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, QSPI_DUMP_CMD_MAX))
+		{
+			printf("Failed to ft4222_qspi_cmd_dump.\n");
+			success = 0;
+			goto exit;
+		}
+		msleep(10);
+	}
+
+	if (size%QSPI_DUMP_CMD_MAX)
+	{
+		qspi_addr = mem_addr + (QSPI_DUMP_CMD_MAX * (cmd_time + 1));
+
+		if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, size%QSPI_DUMP_CMD_MAX))
+		{
+			printf("Failed to ft4222_qspi_cmd_dump.\n");
+			success = 0;
+			goto exit;
+		}
+	}
 
 exit:
     return success;
