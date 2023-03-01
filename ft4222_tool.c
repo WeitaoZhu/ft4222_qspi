@@ -34,7 +34,8 @@
 
 #define QSPI_DATA_LENGTH_MASK     0x07
 
-static const char *const short_options = "bhvrwa:D:d:";
+static int debug_printf=0;
+static const char *const short_options = "bhvrwga:D:d:";
 static const struct option long_options[] = {
    {"base", no_argument, NULL, 'b'},
    {"help", no_argument, NULL, 'h'},
@@ -42,6 +43,7 @@ static const struct option long_options[] = {
    {"addr", required_argument, NULL, 'a'},
    {"Data", required_argument, NULL, 'D'},
    {"div", required_argument, NULL, 'd'},
+   {"debug", no_argument, NULL, 'g'},
    {"write", no_argument, NULL, 'w'},
    {"read", no_argument, NULL, 'r'},
    {NULL, no_argument, NULL, 0},
@@ -57,6 +59,7 @@ static void print_usage(FILE * stream, char *app_name, int exit_code)
       " -a  --Addr <address>      Setting QSPI access address.\n"
       " -D  --Data <value>        Setting QSPI Send data value.\n"
       " -d  --div <division>      Setting QSPI CLOCK with 80MHz/<division>.\n"
+      " -g  --debug               Display QSPI W/R Send Data Info.\n"
       " -w  --write               Setting QSPI Write Operation.\n"
 	  " -r  --read                Setting QSPI Read Operation.\n");
  
@@ -238,12 +241,14 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 	memcpy(writeBuffer, cmd, sizeof(cmd));
 	memcpy(writeBuffer + sizeof(cmd), buffer, bytes);
 
-	#if 1
-	printf("writeBuffer:");
-	for(i=0;i < (sizeof(cmd) + bytes); i++ )
-		printf("%02x ", *(writeBuffer + i));
-	printf("\n");
-	#endif
+	if (debug_printf) {
+		printf("[QSPI Write OP]\n");
+		printf("writeBuffer:");
+		for(i=0;i < (sizeof(cmd) + bytes); i++ )
+			printf("%02x ", *(writeBuffer + i));
+		printf("\n");
+		printf("\n");
+	}
 
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
 						ftHandle,
@@ -261,7 +266,6 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
         success = 0;
         goto exit;
     }
-	//printf("sizeOfRead:%02x\n",sizeOfRead);
 
 exit:
 	free(writeBuffer);
@@ -270,7 +274,7 @@ exit:
 
 static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8_t *buffer, uint16_t bytes)
 {
-    int success = 1;
+    int success = 1 ,cnt = 0;
 	uint8_t cmd[4]= {0};
 	uint8_t data_length;
 	FT4222_STATUS  ft4222Status;
@@ -306,7 +310,11 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 	cmd[2] = (offset >> 10) & 0xFF;
 	cmd[3] = (offset >> 2) & 0xFF;
 
-	printf("Read Request cmd:%02x %02x %02x %02x\n",cmd[0],cmd[1],cmd[2],cmd[3]);
+	if (debug_printf) {
+		printf("[QSPI Read OP]\n");
+		printf("Read Request cmd:%02x %02x %02x %02x\n",cmd[0],cmd[1],cmd[2],cmd[3]);
+	}
+
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
 						ftHandle,
 						NULL, //readBuffer
@@ -323,11 +331,10 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
         success = 0;
         goto exit;
     }
-	//printf("sizeOfRead:%02x\n",sizeOfRead);
-	//sleep(0.5);
+
     //Send Read Data
 	cmd[0] = QSPI_READ_OP | QSPI_TRANS_DATA | data_length;
-	printf("Read Data cmd:%02x\n",cmd[0]);
+
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
 						ftHandle,
 						buffer, //readBuffer
@@ -344,7 +351,15 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
         success = 0;
         goto exit;
     }
-	//printf("sizeOfRead:%02x\n",sizeOfRead);
+
+	if (debug_printf) {
+		printf("Read Data cmd:%02x\n",cmd[0]);
+		printf("Read Data:");
+		for(cnt=0; cnt < sizeOfRead; cnt++)
+			printf("%02x ", *(buffer + cnt));
+		printf("\n");
+		printf("\n");
+	}
 
 exit:
     return success;
@@ -397,6 +412,7 @@ static int ft4222_qspi_memory_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8
 			success = 0;
 			goto exit;
 		}
+		sleep(0.5);
 	}
 
 	// Send QSPI Data
@@ -440,6 +456,7 @@ static int ft4222_qspi_memory_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_
 			success = 0;
 			goto exit;
 		}
+		sleep(0.5);
 	}
 
 	// Send QSPI Data
@@ -602,6 +619,9 @@ int main(int argc, char **argv)
       case 'd':
 	     division = atoi(optarg);
 		 ftQspiClk = ft4222_convert_qspiclk(division);
+         break;
+      case 'g':
+			debug_printf = 1;
          break;
       case 'w':
 			write_op = 1;
