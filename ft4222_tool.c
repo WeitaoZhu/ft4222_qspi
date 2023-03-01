@@ -20,6 +20,8 @@
 #define QSPI_SYS_CLK         80000000
 #define QSPI_ACCESS_WINDOW   0x02000000
 #define QSPI_SET_BASE_ADDR   0x02000004
+#define QSPI_DUMP_MAX_SIZE   4096
+#define QSPI_MULTI_WR_DELAY  10
 
 #define QSPI_WR_OP_MASK           (1<<7)
 #define QSPI_WRITE_OP             (1<<7)
@@ -93,6 +95,10 @@ static unsigned int get_ul_number(const char *_str)
 	return addr;
 }
 
+static void msleep(unsigned int msecs)
+{
+	usleep(msecs*1000);
+}
 static void showVersion(FT_HANDLE ftHandle)
 {
     FT_STATUS            ftStatus;
@@ -262,6 +268,8 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 						0, //multiReadBytes = 0
 						&sizeOfRead);
 
+	msleep(QSPI_MULTI_WR_DELAY);
+
     if (FT4222_OK != ft4222Status)
     {
         printf("FT4222_SPIMaster_MultiReadWrite failed (error %d)!\n",
@@ -269,7 +277,6 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
         success = 0;
         goto exit;
     }
-	sleep(0.5);
 exit:
 	free(writeBuffer);
     return success;
@@ -326,6 +333,7 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 						sizeof(cmd), //multiWriteBytes
 						0, //multiReadBytes = 0
 						&sizeOfRead);
+	msleep(QSPI_MULTI_WR_DELAY);
 
     if (FT4222_OK != ft4222Status)
     {
@@ -337,7 +345,6 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 
     //Send Read Data
 	cmd[0] = QSPI_READ_OP | QSPI_TRANS_DATA | data_length;
-
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
 						ftHandle,
 						buffer, //readBuffer
@@ -346,6 +353,8 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 						1, //multiWriteBytes
 						bytes, //multiReadBytes = 0
 						&sizeOfRead);
+
+	msleep(QSPI_MULTI_WR_DELAY);
 
     if (FT4222_OK != ft4222Status)
     {
@@ -386,13 +395,12 @@ exit:
     return success;
 }
 
-static int ft4222_qspi_memory_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *buffer, uint16_t bytes)
+static int ft4222_qspi_check_base(FT_HANDLE ftHandle, uint32_t mem_addr)
 {
-	int success = 1;
+	int success = 1, retry=0;
 	uint8_t  qspi_base[4]= {0};
 	uint32_t qspi_base_addr =0;
 	uint32_t base_addr  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
-	uint32_t offset_addr=(mem_addr%QSPI_ACCESS_WINDOW);
 
 	if (!ft4222_qspi_get_base(ftHandle, &qspi_base_addr))
 	{
@@ -400,6 +408,8 @@ static int ft4222_qspi_memory_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8
 		success = 0;
         goto exit;
 	}
+
+retry_switch:
 
 	// Check QSPI Base Address
 	if (qspi_base_addr != base_addr)
@@ -415,7 +425,41 @@ static int ft4222_qspi_memory_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8
 			success = 0;
 			goto exit;
 		}
-		sleep(0.5);
+		msleep(500);
+
+		if (!ft4222_qspi_get_base(ftHandle, &qspi_base_addr))
+		{
+			printf("Failed to ft4222_qspi_get_base.\n");
+			success = 0;
+			goto exit;
+		}
+
+		if ((qspi_base_addr != base_addr) && (retry < 3)) {
+			retry ++;
+			goto retry_switch;
+		}
+
+		if (retry >= 3) {
+			printf("Failed to retry switch new base 0x%08x.\n",base_addr);
+			success = 0;
+			goto exit;
+		}
+	}
+
+exit:
+    return success;
+}
+
+static int ft4222_qspi_memory_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *buffer, uint16_t bytes)
+{
+	int success = 1;
+	uint32_t offset_addr=(mem_addr%QSPI_ACCESS_WINDOW);
+
+	if (!ft4222_qspi_check_base(ftHandle, mem_addr))
+	{
+        printf("Failed to check and rebuild base address.\n");
+		success = 0;
+        goto exit;
 	}
 
 	// Send QSPI Data
@@ -433,33 +477,13 @@ exit:
 static int ft4222_qspi_memory_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *buffer, uint16_t bytes)
 {
 	int success = 1;
-	uint8_t  qspi_base[4]= {0};
-	uint32_t qspi_base_addr =0;
-	uint32_t base_addr  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 	uint32_t offset_addr=(mem_addr%QSPI_ACCESS_WINDOW);
 
-	if (!ft4222_qspi_get_base(ftHandle, &qspi_base_addr))
+	if (!ft4222_qspi_check_base(ftHandle, mem_addr))
 	{
-        printf("Failed to ft4222_qspi_get_base.\n");
+        printf("Failed to check and rebuild base address.\n");
 		success = 0;
         goto exit;
-	}
-
-	// Check QSPI Base Address
-	if (qspi_base_addr != base_addr)
-	{
-		qspi_base[0] = (base_addr >> 24) & 0xFF;
-		qspi_base[1] = (base_addr >> 16) & 0xFF;
-		qspi_base[2] = (base_addr >>  8) & 0xFF;
-		qspi_base[3] = (base_addr >>  0) & 0xFF;
-
-		if (!ft4222_qspi_write_nword(ftHandle, QSPI_SET_BASE_ADDR, qspi_base, sizeof(qspi_base)))
-		{
-			printf("Failed switch base address to 0x%8x.\n",base_addr);
-			success = 0;
-			goto exit;
-		}
-		sleep(0.5);
 	}
 
 	// Send QSPI Data
@@ -490,9 +514,24 @@ exit:
 }
 
 
-static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint32_t size)
+static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t size)
 {
     int success = 1;
+	uint32_t start_base  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
+	uint32_t end_base  =((mem_addr + size)/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
+	uint32_t offset_addr=(mem_addr%QSPI_ACCESS_WINDOW);
+
+	if (size > QSPI_DUMP_MAX_SIZE) {
+        printf("QSPI Dump memory size %d exceed max %d.\n",(int)size ,QSPI_DUMP_MAX_SIZE);
+		success = 0;
+        goto exit;
+	}
+
+	if ((start_base != end_base) && ((mem_addr + size)%QSPI_ACCESS_WINDOW)){
+        printf("QSPI Dump memory from 0x%08x to 0x%08x, exceed next 32M windows 0x%08x.\n",mem_addr, (mem_addr + size), end_base);
+		success = 0;
+        goto exit;
+	}
 
 exit:
     return success;
