@@ -595,7 +595,7 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
 			success = 0;
 			goto exit;
 		}
-		msleep(10);
+		msleep(QSPI_MULTI_WR_DELAY);
 	}
 
 	if (size%QSPI_DUMP_CMD_MAX)
