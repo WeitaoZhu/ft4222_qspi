@@ -17,6 +17,7 @@
 // SS0O, SS1O, SS2O and SS3O in quad mode.
 #define SLAVE_SELECT(x)      (1 << (x))
 
+#define QSPI_SYS_CLK         80000000
 #define QSPI_ACCESS_WINDOW   0x02000000
 #define QSPI_SET_BASE_ADDR   0x02000004
 
@@ -502,7 +503,7 @@ int main(int argc, char **argv)
    FT4222_STATUS             ft4222Status;
    FT_HANDLE                 ftHandle = (FT_HANDLE)NULL;
    FT_DEVICE_LIST_INFO_NODE  *devInfo = NULL;
-   FT4222_SPIClock           ftQspiClk = CLK_DIV_128;  //Set QSPI CLK default CLK_DIV_128 80M/128=625Khz
+   FT4222_SPIClock           ftQspiClk = 0;
    DWORD                     numDevs = 0;
    DWORD                     ft4222_LocId;
    unsigned int              addr,spi2ahb_base,data_value,tmp_value;
@@ -515,7 +516,8 @@ int main(int argc, char **argv)
    int next_option;   /* getopt iteration var */
  
    /* Init variables */
-   division = 0;
+   division = 128;
+   ftQspiClk = ft4222_convert_qspiclk(division);  //Set QSPI CLK default CLK_DIV_128 80M/128=625Khz
    write_op = 0;
    read_op = 0;
    addr_set = 0;
@@ -619,6 +621,7 @@ int main(int argc, char **argv)
       case 'd':
 	     division = atoi(optarg);
 		 ftQspiClk = ft4222_convert_qspiclk(division);
+
          break;
       case 'g':
 			debug_printf = 1;
@@ -638,6 +641,8 @@ int main(int argc, char **argv)
       }
    } while (next_option != -1);
    
+	printf("[QSPI CLK] %d Hz\n",QSPI_SYS_CLK/division);
+
    if (write_op)
    {
 	   if ((addr_set == 0) || (data_set == 0))
