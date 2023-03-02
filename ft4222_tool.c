@@ -24,7 +24,7 @@
 #define QSPI_DUMP_MAX_SIZE   4096
 #define QSPI_DUMP_COL_NUM    4
 #define QSPI_DUMP_WORD       4
-#define QSPI_MULTI_WR_DELAY  10
+#define QSPI_MULTI_WR_DELAY  150
 
 #define QSPI_WR_OP_MASK           (1<<7)
 #define QSPI_WRITE_OP             (1<<7)
@@ -39,6 +39,7 @@
 #define QSPI_WAIT_CYCLE_MASK      (3<<3)
 
 #define QSPI_DATA_LENGTH_MASK     0x07
+#define QSPI_READ_REQ_LEN         0x00
 
 static int debug_printf=0;
 static const char *const short_options = "bhvrwga:D:d:p:s:S:";
@@ -421,7 +422,7 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 	}
 
 	//Send Read Request
-	cmd[0] = QSPI_READ_OP | QSPI_READ_REQUEST | data_length;
+	cmd[0] = QSPI_READ_OP | QSPI_READ_REQUEST | QSPI_READ_REQ_LEN;
 	cmd[1] = (offset >> 18) & 0xFF;
 	cmd[2] = (offset >> 10) & 0xFF;
 	cmd[3] = (offset >> 2) & 0xFF;
@@ -621,7 +622,7 @@ exit:
 
 static int ft4222_qspi_cmd_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t size)
 {
-    int success = 1, row =0, col =0;
+    int success = 1, row =0, col =0, max_row = 0, max_col =0, malloc_len =0;
 	uint8_t *buffer = NULL;
 	uint32_t start_base  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 	uint32_t end_base  =((mem_addr + size)/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
@@ -638,24 +639,70 @@ static int ft4222_qspi_cmd_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t 
         goto exit;
 	}
 
-	buffer = malloc(size);
+	if (size <= 4)
+		malloc_len = 4;
+	else if ((size > 4) && (size <= 16))
+		malloc_len = 16;
+	else if ((size > 16) && (size <= 32))
+		malloc_len = 32;
+	else if ((size > 32) && (size <= 64))
+		malloc_len = 64;
+	else if ((size > 64) && (size <= 128))
+		malloc_len = 128;
+	else if ((size > 128) && (size <= 256))
+		malloc_len = 256;
+	else {
+		printf("QSPI Write with string length %d exceed max 256.\n",size);
+		success = 0;
+		goto exit;
+	}
 
-	if (!ft4222_qspi_memory_read(ftHandle, mem_addr, buffer, size))
+	buffer = malloc(malloc_len);
+	memset(buffer,0x0,malloc_len);
+
+	if (!ft4222_qspi_memory_read(ftHandle, mem_addr, buffer, malloc_len))
 	{
         printf("Failed to ft4222_qspi_memory_read 4 bytes.\n");
 		success = 0;
         goto exit;
 	}
 
-	for(row=0; row < size/(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD); row++)
-	{
-		printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
-		for(col=0; col < QSPI_DUMP_COL_NUM; col++)
+	max_row = size/(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD);
+
+	if (max_row) {
+
+		for(row=0; row < max_row; row++)
 		{
-			printf("%08x ", swapLong(*((uint32_t *)(buffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
+			printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
+			for(col=0; col < QSPI_DUMP_COL_NUM; col++)
+			{
+				printf("%08x ", swapLong(*((uint32_t *)(buffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
+			}
+			printf("\n");
 		}
-		printf("\n");
+
+		if (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))
+		{
+			row++;
+			max_col = (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))/QSPI_DUMP_WORD;
+			printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
+			for(col=0; col < max_col; col++)
+			{
+				printf("%08x ", swapLong(*((uint32_t *)(buffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
+			}
+			printf("\n");
+		}
 	}
+	else
+	{
+		printf("%08x : ", mem_addr);
+		max_col = (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))/QSPI_DUMP_WORD;
+		for(col=0; col < max_col; col++)
+		{
+			printf("%08x ", swapLong(*((uint32_t *)(buffer + col*QSPI_DUMP_WORD))));
+		}
+	}
+	printf("\n");
 exit:
     return success;
 }
@@ -684,7 +731,7 @@ static int ft4222_qspi_cmd_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t 
 		success = 0;
         goto exit;
 	}
-	msleep(5);
+	msleep(QSPI_MULTI_WR_DELAY);
 exit:
     return success;
 }
@@ -702,31 +749,44 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
 
 	cmd_time = (size/QSPI_DUMP_CMD_MAX);
 
-	for (cmd_time = 0; cmd_time < (size/QSPI_DUMP_CMD_MAX) ; cmd_time++)
-	{
-		qspi_addr = mem_addr + (QSPI_DUMP_CMD_MAX * cmd_time);
+	if (cmd_time) {
+		for (cmd_time = 0; cmd_time < (size/QSPI_DUMP_CMD_MAX) ; cmd_time++)
+		{
+			qspi_addr = mem_addr + (QSPI_DUMP_CMD_MAX * cmd_time);
 
-		if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, QSPI_DUMP_CMD_MAX))
+			if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, QSPI_DUMP_CMD_MAX))
+			{
+				printf("Failed to ft4222_qspi_cmd_dump.\n");
+				success = 0;
+				goto exit;
+			}
+			msleep(QSPI_MULTI_WR_DELAY);
+		}
+
+		if (size%QSPI_DUMP_CMD_MAX)
+		{
+			cmd_time++;
+			qspi_addr = mem_addr + (QSPI_DUMP_CMD_MAX * cmd_time);
+
+			if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, size%QSPI_DUMP_CMD_MAX))
+			{
+				printf("Failed to ft4222_qspi_cmd_dump.\n");
+				success = 0;
+				goto exit;
+			}
+		}
+	}
+	else
+	{
+		qspi_addr = mem_addr;
+
+		if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, size))
 		{
 			printf("Failed to ft4222_qspi_cmd_dump.\n");
 			success = 0;
 			goto exit;
 		}
-		msleep(QSPI_MULTI_WR_DELAY);
 	}
-
-	if (size%QSPI_DUMP_CMD_MAX)
-	{
-		qspi_addr = mem_addr + (QSPI_DUMP_CMD_MAX * (cmd_time + 1));
-
-		if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, size%QSPI_DUMP_CMD_MAX))
-		{
-			printf("Failed to ft4222_qspi_cmd_dump.\n");
-			success = 0;
-			goto exit;
-		}
-	}
-
 exit:
     return success;
 }
@@ -751,9 +811,7 @@ static int ft4222_qspi_memory_write_string(FT_HANDLE ftHandle, uint32_t mem_addr
 
 	if (data_len <= 4)
 		malloc_len = 4;
-	else if ((data_len > 4) && (data_len <= 8))
-		malloc_len = 8;
-	else if ((data_len > 8) && (data_len <= 16))
+	else if ((data_len > 4) && (data_len <= 16))
 		malloc_len = 16;
 	else if ((data_len > 16) && (data_len <= 32))
 		malloc_len = 32;
@@ -770,6 +828,7 @@ static int ft4222_qspi_memory_write_string(FT_HANDLE ftHandle, uint32_t mem_addr
 	}
 
 	bufPtr  = malloc(malloc_len);
+	memset(bufPtr,0x0,malloc_len);
 	hex2data(bufPtr,strbuf,data_len);
 
 	if (!ft4222_qspi_cmd_write(ftHandle, mem_addr, bufPtr, malloc_len))
@@ -778,7 +837,7 @@ static int ft4222_qspi_memory_write_string(FT_HANDLE ftHandle, uint32_t mem_addr
 		success = 0;
 		goto exit;
 	}
-	msleep(5);
+	msleep(QSPI_MULTI_WR_DELAY);
 exit:
 	if (bufPtr != NULL)
 		free(bufPtr);
@@ -1028,6 +1087,10 @@ int main(int argc, char **argv)
 		ft4222_qspi_memory_write_word(ftHandle, addr, data_value);
 	}
 
+	if (string_send) {
+		ft4222_qspi_memory_write_string(ftHandle, addr, strbuf);
+	}
+
 	if (read_op) {
 		ft4222_qspi_memory_read_word(ftHandle, addr, &tmp_value);
 		printf("%08x : %08x\n", addr, tmp_value);
@@ -1035,10 +1098,6 @@ int main(int argc, char **argv)
 
 	if (dump_show) {
 		ft4222_qspi_memory_dump(ftHandle, addr, dump_size);
-	}
-
-	if (string_send) {
-		ft4222_qspi_memory_write_string(ftHandle, addr, strbuf);
 	}
 
 ft4222_exit:
