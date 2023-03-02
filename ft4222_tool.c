@@ -871,7 +871,8 @@ exit:
 static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_addr, char *script_name)
 {
     int success = 1;
-	int data_len, malloc_len, cmd_time;;
+	int data_len, malloc_len, cmd_time;
+	uint32_t qspi_addr = 0;
 	size_t filesize;
 	char *buf_script =NULL;
 	uint8_t *bufPtr = NULL;
@@ -888,14 +889,57 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 	filesize = get_file_size(script_name);
 	buf_script = malloc(filesize);
 
-    while (fgets(buf_script,filesize, fp_script)!=NULL)
-    {
-		if (strstr(buf_script, "//")) printf("%s",strstr(buf_script, "//"));  // print comments
-			strcpy(buf_script,replace(buf_script," ",""));
-			removeScriptComments(buf_script, '#');
-    }
+	fread(buf_script, sizeof(char), filesize, fp_script);
+	strcpy(buf_script,replace(buf_script," ",""));
+	removeScriptComments(buf_script, '#');
+	fclose(fp_script);
+	//printf("-S %s",buf_script);
 
-    fclose(fp_script);
+	data_len = strlen(buf_script)/2;
+	bufPtr  = malloc(data_len);
+	memset(bufPtr,0x0,data_len);
+	hex2data(bufPtr,buf_script,data_len);
+
+	cmd_time = (data_len/QSPI_CMD_DATA_MAX);
+
+	if (cmd_time) {
+		for (cmd_time = 0; cmd_time < (data_len/QSPI_CMD_DATA_MAX) ; cmd_time++)
+		{
+			qspi_addr = mem_addr + (QSPI_CMD_DATA_MAX * cmd_time);
+
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_DATA_MAX * cmd_time),QSPI_CMD_DATA_MAX))
+			{
+				printf("Failed to ft4222_qspi_cmd_write.\n");
+				success = 0;
+				goto exit;
+			}
+			msleep(QSPI_MULTI_WR_DELAY);
+		}
+
+		if (data_len%QSPI_CMD_DATA_MAX)
+		{
+			cmd_time++;
+			qspi_addr = mem_addr + (QSPI_CMD_DATA_MAX * cmd_time);
+
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_DATA_MAX * cmd_time),data_len%QSPI_CMD_DATA_MAX))
+			{
+				printf("Failed to ft4222_qspi_cmd_write.\n");
+				success = 0;
+				goto exit;
+			}
+		}
+	}
+	else
+	{
+		qspi_addr = mem_addr;
+
+		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, data_len))
+		{
+			printf("Failed to ft4222_qspi_cmd_write.\n");
+			success = 0;
+			goto exit;
+		}
+	}
 
 exit:
     return success;
@@ -1161,6 +1205,10 @@ int main(int argc, char **argv)
 
 	if (string_send) {
 		ft4222_qspi_memory_write_string(ftHandle, addr, strbuf);
+	}
+
+	if (script_send) {
+		ft4222_qspi_memory_write_scriptfile(ftHandle, addr, scriptFile);
 	}
 
 	if (read_op) {
