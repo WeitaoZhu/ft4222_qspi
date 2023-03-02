@@ -20,11 +20,12 @@
 #define QSPI_SYS_CLK         80000000
 #define QSPI_ACCESS_WINDOW   0x02000000
 #define QSPI_SET_BASE_ADDR   0x02000004
-#define QSPI_DUMP_CMD_MAX    128
+#define QSPI_CMD_DATA_MAX    128
 #define QSPI_DUMP_MAX_SIZE   4096
+#define QSPI_SCRIPT_MAX_SIZE 4096
 #define QSPI_DUMP_COL_NUM    4
 #define QSPI_DUMP_WORD       4
-#define QSPI_MULTI_WR_DELAY  150
+#define QSPI_MULTI_WR_DELAY  50
 
 #define QSPI_WR_OP_MASK           (1<<7)
 #define QSPI_WRITE_OP             (1<<7)
@@ -37,6 +38,7 @@
 #define QSPI_READ_DUMMY           (3<<5)
 
 #define QSPI_WAIT_CYCLE_MASK      (3<<3)
+#define QSPI_WAIT_CYCLE(n)        (n<<3)
 
 #define QSPI_DATA_LENGTH_MASK     0x07
 #define QSPI_READ_REQ_LEN         0x00
@@ -206,6 +208,14 @@ static int removeScriptComments(char *s, char CommentChar) {
  return 0;
 }
 
+static int get_file_size(char *filename)
+{
+	struct stat st;
+	if (stat(filename, &st) == 0)
+		return st.st_size;
+	return -1;
+}
+
 static void showVersion(FT_HANDLE ftHandle)
 {
     FT_STATUS            ftStatus;
@@ -320,7 +330,7 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 	uint8_t *writeBuffer =  NULL;
 	uint8_t cmd[4]= {0};
 	uint8_t data_length;
-	FT4222_STATUS  ft4222Status;
+	FT4222_STATUS  ft4222Status = FT4222_OK;
 	uint32_t sizeOfRead;
 
 	switch(bytes)
@@ -359,13 +369,14 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 
 	if (debug_printf) {
 		printf("[QSPI Write OP]\n");
+		printf("[CMD:%d bytes DATA:%d bytes]\n",(int)sizeof(cmd),bytes);
 		printf("writeBuffer:");
 		for(i=0;i < (sizeof(cmd) + bytes); i++ )
 			printf("%02x ", *(writeBuffer + i));
 		printf("\n");
 		printf("\n");
 	}
-
+	#if 0
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
 						ftHandle,
 						NULL, //readBuffer
@@ -374,7 +385,7 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 						bytes + sizeof(cmd), //multiWriteBytes
 						0, //multiReadBytes = 0
 						&sizeOfRead);
-
+	#endif
 	msleep(QSPI_MULTI_WR_DELAY);
 
     if (FT4222_OK != ft4222Status)
@@ -451,7 +462,7 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
     }
 
     //Send Read Data
-	cmd[0] = QSPI_READ_OP | QSPI_TRANS_DATA | data_length;
+	cmd[0] = QSPI_READ_OP | QSPI_TRANS_DATA | QSPI_WAIT_CYCLE(0) | data_length;
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
 						ftHandle,
 						buffer, //readBuffer
@@ -627,8 +638,8 @@ static int ft4222_qspi_cmd_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t 
 	uint32_t start_base  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 	uint32_t end_base  =((mem_addr + size)/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 
-	if (size > QSPI_DUMP_CMD_MAX) {
-        printf("QSPI CMD Dump size %d exceed max %d.\n",(int)size ,QSPI_DUMP_CMD_MAX);
+	if (size > QSPI_CMD_DATA_MAX) {
+        printf("QSPI CMD Dump size %d exceed max %d.\n",(int)size ,QSPI_CMD_DATA_MAX);
 		success = 0;
         goto exit;
 	}
@@ -710,11 +721,13 @@ exit:
 static int ft4222_qspi_cmd_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *buffer, uint16_t size)
 {
     int success = 1;
+	int malloc_len, cnt;
 	uint32_t start_base  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 	uint32_t end_base  =((mem_addr + size)/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
+	uint8_t *bufPtr = NULL;
 
-	if (size > QSPI_DUMP_CMD_MAX) {
-        printf("QSPI CMD Write size %d exceed max %d.\n",(int)size ,QSPI_DUMP_CMD_MAX);
+	if (size > QSPI_CMD_DATA_MAX) {
+        printf("QSPI CMD Write size %d exceed max %d.\n",(int)size ,QSPI_CMD_DATA_MAX);
 		success = 0;
         goto exit;
 	}
@@ -725,7 +738,29 @@ static int ft4222_qspi_cmd_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t 
         goto exit;
 	}
 
-	if (!ft4222_qspi_memory_write(ftHandle, mem_addr, buffer, size))
+	if (size <= 4)
+		malloc_len = 4;
+	else if ((size > 4) && (size <= 16))
+		malloc_len = 16;
+	else if ((size > 16) && (size <= 32))
+		malloc_len = 32;
+	else if ((size > 32) && (size <= 64))
+		malloc_len = 64;
+	else if ((size > 64) && (size <= 128))
+		malloc_len = 128;
+	else if ((size > 128) && (size <= 256))
+		malloc_len = 256;
+	else {
+		printf("QSPI Write with string length %d exceed max 256.\n",size);
+		success = 0;
+		goto exit;
+	}
+
+	bufPtr  = malloc(malloc_len);
+	memset(bufPtr,0x0,malloc_len);
+	memcpy(bufPtr,buffer,size);
+
+	if (!ft4222_qspi_memory_write(ftHandle, mem_addr, bufPtr, malloc_len))
 	{
         printf("Failed to ft4222_qspi_memory_read 4 bytes.\n");
 		success = 0;
@@ -747,14 +782,14 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
         goto exit;
 	}
 
-	cmd_time = (size/QSPI_DUMP_CMD_MAX);
+	cmd_time = (size/QSPI_CMD_DATA_MAX);
 
 	if (cmd_time) {
-		for (cmd_time = 0; cmd_time < (size/QSPI_DUMP_CMD_MAX) ; cmd_time++)
+		for (cmd_time = 0; cmd_time < (size/QSPI_CMD_DATA_MAX) ; cmd_time++)
 		{
-			qspi_addr = mem_addr + (QSPI_DUMP_CMD_MAX * cmd_time);
+			qspi_addr = mem_addr + (QSPI_CMD_DATA_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, QSPI_DUMP_CMD_MAX))
+			if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, QSPI_CMD_DATA_MAX))
 			{
 				printf("Failed to ft4222_qspi_cmd_dump.\n");
 				success = 0;
@@ -763,12 +798,12 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
 			msleep(QSPI_MULTI_WR_DELAY);
 		}
 
-		if (size%QSPI_DUMP_CMD_MAX)
+		if (size%QSPI_CMD_DATA_MAX)
 		{
 			cmd_time++;
-			qspi_addr = mem_addr + (QSPI_DUMP_CMD_MAX * cmd_time);
+			qspi_addr = mem_addr + (QSPI_CMD_DATA_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, size%QSPI_DUMP_CMD_MAX))
+			if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, size%QSPI_CMD_DATA_MAX))
 			{
 				printf("Failed to ft4222_qspi_cmd_dump.\n");
 				success = 0;
@@ -804,34 +839,22 @@ static int ft4222_qspi_memory_write_word(FT_HANDLE ftHandle, uint32_t mem_addr, 
 static int ft4222_qspi_memory_write_string(FT_HANDLE ftHandle, uint32_t mem_addr, char *strbuf)
 {
     int success = 1;
-	int data_len, malloc_len, cnt;
+	int data_len;
 	uint8_t *bufPtr = NULL;
 
 	data_len = strlen(strbuf)/2;
 
-	if (data_len <= 4)
-		malloc_len = 4;
-	else if ((data_len > 4) && (data_len <= 16))
-		malloc_len = 16;
-	else if ((data_len > 16) && (data_len <= 32))
-		malloc_len = 32;
-	else if ((data_len > 32) && (data_len <= 64))
-		malloc_len = 64;
-	else if ((data_len > 64) && (data_len <= 128))
-		malloc_len = 128;
-	else if ((data_len > 128) && (data_len <= 256))
-		malloc_len = 256;
-	else {
-		printf("QSPI Write with string length %d exceed max 256.\n",data_len);
+	if (data_len > QSPI_CMD_DATA_MAX) {
+        printf("QSPI CMD Write size %d exceed max %d.\n",(int)data_len ,QSPI_CMD_DATA_MAX);
 		success = 0;
-		goto exit;
+        goto exit;
 	}
 
-	bufPtr  = malloc(malloc_len);
-	memset(bufPtr,0x0,malloc_len);
+	bufPtr  = malloc(data_len);
+	memset(bufPtr,0x0,data_len);
 	hex2data(bufPtr,strbuf,data_len);
 
-	if (!ft4222_qspi_cmd_write(ftHandle, mem_addr, bufPtr, malloc_len))
+	if (!ft4222_qspi_cmd_write(ftHandle, mem_addr, bufPtr, data_len))
 	{
 		printf("Failed to ft4222_qspi_cmd_write.\n");
 		success = 0;
@@ -841,6 +864,40 @@ static int ft4222_qspi_memory_write_string(FT_HANDLE ftHandle, uint32_t mem_addr
 exit:
 	if (bufPtr != NULL)
 		free(bufPtr);
+    return success;
+}
+
+
+static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_addr, char *script_name)
+{
+    int success = 1;
+	int data_len, malloc_len, cmd_time;;
+	size_t filesize;
+	char *buf_script =NULL;
+	uint8_t *bufPtr = NULL;
+    FILE *fp_script;
+
+    fp_script =fopen(script_name,"r");
+	if (!fp_script)
+	{
+		printf("cannot open file: %s \n",script_name);
+		success = 0;
+		goto exit;
+	}
+
+	filesize = get_file_size(script_name);
+	buf_script = malloc(filesize);
+
+    while (fgets(buf_script,filesize, fp_script)!=NULL)
+    {
+		if (strstr(buf_script, "//")) printf("%s",strstr(buf_script, "//"));  // print comments
+			strcpy(buf_script,replace(buf_script," ",""));
+			removeScriptComments(buf_script, '#');
+    }
+
+    fclose(fp_script);
+
+exit:
     return success;
 }
 
@@ -863,7 +920,7 @@ int main(int argc, char **argv)
    int                       found4222 = 0;	
 
    int fd;
-   int division,write_op,read_op,addr_set,data_set,show_base,show_ft4222_ver,dump_show,dump_size,string_send;
+   int division,write_op,read_op,addr_set,data_set,show_base,show_ft4222_ver,dump_show,dump_size,string_send,script_send;
    int next_option;   /* getopt iteration var */
  
    /* Init variables */
@@ -878,6 +935,7 @@ int main(int argc, char **argv)
    show_ft4222_ver =0;
    dump_show = 0;
    string_send =0;
+   script_send =0;
    
     ftStatus = FT_CreateDeviceInfoList(&numDevs);
     if (ftStatus != FT_OK) 
@@ -977,9 +1035,13 @@ int main(int argc, char **argv)
 			strbuf = malloc(strLength);
 			strcpy(strbuf,replace(optarg," ",""));
 			string_send = 1;
-			printf("-s %s \n",strbuf);
+			//printf("-s %s \n",strbuf);
          break;
       case 'S':
+			strLength = strlen(optarg);
+			scriptFile = malloc(strLength);
+			strcpy(scriptFile,replace(optarg," ",""));
+			script_send = 1;
          break;
       case 'v':
 			show_ft4222_ver = 1;
@@ -1048,6 +1110,16 @@ int main(int argc, char **argv)
 	    if (addr_set == 0)
 	    {
 			printf("ft4222 work in string write mode,addr is missing\n");
+			retCode = -30;
+			goto ft4222_exit;
+	    }
+    }
+
+    if (script_send)
+    {
+	    if (addr_set == 0)
+	    {
+			printf("ft4222 work in script file write mode,addr is missing\n");
 			retCode = -30;
 			goto ft4222_exit;
 	    }
