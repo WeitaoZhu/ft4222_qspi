@@ -328,7 +328,7 @@ static FT4222_SPIClock ft4222_convert_qspiclk(int division)
 
 static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint8_t *buffer, uint16_t bytes)
 {
-    int success = 1, i =0;
+    int success = 1, row = 0;
 	uint8_t *writeBuffer =  NULL;
 	uint8_t cmd[4]= {0};
 	uint8_t data_length;
@@ -371,14 +371,23 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 
 	if (debug_printf) {
 		printf("[QSPI Write OP]\n");
-		printf("[CMD:%d bytes DATA:%d bytes]\n",(int)sizeof(cmd),bytes);
-		printf("writeBuffer:");
-		for(i=0;i < (sizeof(cmd) + bytes); i++ )
-			printf("%02x ", *(writeBuffer + i));
+		printf("[CMD:%d bytes]\n",(int)sizeof(cmd));
+		for(row=0;row < sizeof(cmd); row++ )
+			printf("%02x ", *(writeBuffer + row));
+		printf("\n");
+
+		printf("[DATA:%d bytes]\n",bytes);
+		for(row=0;row < bytes; row++ )
+		{
+			if ((row%16 == 0) && (row > 0))
+				printf("\n");
+			printf("%02x ", *(writeBuffer + sizeof(cmd) + row));
+		}
+
 		printf("\n");
 		printf("\n");
 	}
-	#if 0
+	#if 1
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
 						ftHandle,
 						NULL, //readBuffer
