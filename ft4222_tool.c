@@ -768,8 +768,8 @@ static int ft4222_qspi_cmd_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t 
 		{
 			printf("%08x ", swapLong(*((uint32_t *)(buffer + col*QSPI_DUMP_WORD))));
 		}
+		printf("\n");
 	}
-	printf("\n");
 exit:
     return success;
 }
