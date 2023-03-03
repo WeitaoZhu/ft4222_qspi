@@ -444,7 +444,7 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 	}
 
 	//Send Read Request
-	cmd[0] = QSPI_READ_OP | QSPI_READ_REQUEST | QSPI_READ_REQ_LEN;
+	cmd[0] = QSPI_READ_OP | QSPI_READ_REQUEST | data_length;
 	cmd[1] = (offset >> 18) & 0xFF;
 	cmd[2] = (offset >> 10) & 0xFF;
 	cmd[3] = (offset >> 2) & 0xFF;
