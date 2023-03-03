@@ -20,7 +20,11 @@
 #define QSPI_SYS_CLK         80000000
 #define QSPI_ACCESS_WINDOW   0x02000000
 #define QSPI_SET_BASE_ADDR   0x02000004
+#define QSPI_DEFAULT_DIV     512
+#define QSPI_SYS_CLK         80000000
 #define QSPI_CMD_DATA_MAX    128
+#define QSPI_CMD_WRITE_MAX   128
+#define QSPI_CMD_READ_MAX    128
 #define QSPI_DUMP_MAX_SIZE   4096
 #define QSPI_SCRIPT_MAX_SIZE 4096
 #define QSPI_DUMP_COL_NUM    4
@@ -686,8 +690,8 @@ static int ft4222_qspi_cmd_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t 
 	uint32_t start_base  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 	uint32_t end_base  =((mem_addr + size)/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 
-	if (size > QSPI_CMD_DATA_MAX) {
-        printf("QSPI CMD Dump size %d exceed max %d.\n",(int)size ,QSPI_CMD_DATA_MAX);
+	if (size > QSPI_CMD_READ_MAX) {
+        printf("QSPI CMD Dump size %d exceed max %d.\n",(int)size ,QSPI_CMD_READ_MAX);
 		success = 0;
         goto exit;
 	}
@@ -774,8 +778,8 @@ static int ft4222_qspi_cmd_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t 
 	uint32_t end_base  =((mem_addr + size)/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 	uint8_t *bufPtr = NULL;
 
-	if (size > QSPI_CMD_DATA_MAX) {
-        printf("QSPI CMD Write size %d exceed max %d.\n",(int)size ,QSPI_CMD_DATA_MAX);
+	if (size > QSPI_CMD_WRITE_MAX) {
+        printf("QSPI CMD Write size %d exceed max %d.\n",(int)size ,QSPI_CMD_WRITE_MAX);
 		success = 0;
         goto exit;
 	}
@@ -830,14 +834,14 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
         goto exit;
 	}
 
-	cmd_time = (size/QSPI_CMD_DATA_MAX);
+	cmd_time = (size/QSPI_CMD_READ_MAX);
 
 	if (cmd_time) {
-		for (cmd_time = 0; cmd_time < (size/QSPI_CMD_DATA_MAX) ; cmd_time++)
+		for (cmd_time = 0; cmd_time < (size/QSPI_CMD_READ_MAX) ; cmd_time++)
 		{
-			qspi_addr = mem_addr + (QSPI_CMD_DATA_MAX * cmd_time);
+			qspi_addr = mem_addr + (QSPI_CMD_READ_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, QSPI_CMD_DATA_MAX))
+			if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, QSPI_CMD_READ_MAX))
 			{
 				printf("Failed to ft4222_qspi_cmd_dump.\n");
 				success = 0;
@@ -846,12 +850,12 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
 			msleep(QSPI_MULTI_WR_DELAY);
 		}
 
-		if (size%QSPI_CMD_DATA_MAX)
+		if (size%QSPI_CMD_READ_MAX)
 		{
 			cmd_time++;
-			qspi_addr = mem_addr + (QSPI_CMD_DATA_MAX * cmd_time);
+			qspi_addr = mem_addr + (QSPI_CMD_READ_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, size%QSPI_CMD_DATA_MAX))
+			if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, size%QSPI_CMD_READ_MAX))
 			{
 				printf("Failed to ft4222_qspi_cmd_dump.\n");
 				success = 0;
@@ -892,8 +896,8 @@ static int ft4222_qspi_memory_write_string(FT_HANDLE ftHandle, uint32_t mem_addr
 
 	data_len = strlen(strbuf)/2;
 
-	if (data_len > QSPI_CMD_DATA_MAX) {
-        printf("QSPI CMD Write size %d exceed max %d.\n",(int)data_len ,QSPI_CMD_DATA_MAX);
+	if (data_len > QSPI_CMD_WRITE_MAX) {
+        printf("QSPI CMD Write size %d exceed max %d.\n",(int)data_len ,QSPI_CMD_WRITE_MAX);
 		success = 0;
         goto exit;
 	}
@@ -948,14 +952,14 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 	memset(bufPtr,0x0,data_len);
 	hex2data(bufPtr,buf_script,data_len);
 
-	cmd_time = (data_len/QSPI_CMD_DATA_MAX);
+	cmd_time = (data_len/QSPI_CMD_WRITE_MAX);
 
 	if (cmd_time) {
-		for (cmd_time = 0; cmd_time < (data_len/QSPI_CMD_DATA_MAX) ; cmd_time++)
+		for (cmd_time = 0; cmd_time < (data_len/QSPI_CMD_WRITE_MAX) ; cmd_time++)
 		{
-			qspi_addr = mem_addr + (QSPI_CMD_DATA_MAX * cmd_time);
+			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_DATA_MAX * cmd_time),QSPI_CMD_DATA_MAX))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time),QSPI_CMD_WRITE_MAX))
 			{
 				printf("Failed to ft4222_qspi_cmd_write.\n");
 				success = 0;
@@ -964,12 +968,12 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 			msleep(QSPI_MULTI_WR_DELAY);
 		}
 
-		if (data_len%QSPI_CMD_DATA_MAX)
+		if (data_len%QSPI_CMD_WRITE_MAX)
 		{
 			cmd_time++;
-			qspi_addr = mem_addr + (QSPI_CMD_DATA_MAX * cmd_time);
+			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_DATA_MAX * cmd_time),data_len%QSPI_CMD_DATA_MAX))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time),data_len%QSPI_CMD_WRITE_MAX))
 			{
 				printf("Failed to ft4222_qspi_cmd_write.\n");
 				success = 0;
@@ -1015,14 +1019,14 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 	fread(bufPtr, sizeof(char), filesize, fp_binary);
 	fclose(fp_binary);
 
-	cmd_time = (filesize/QSPI_CMD_DATA_MAX);
+	cmd_time = (filesize/QSPI_CMD_WRITE_MAX);
 
 	if (cmd_time) {
-		for (cmd_time = 0; cmd_time < (filesize/QSPI_CMD_DATA_MAX) ; cmd_time++)
+		for (cmd_time = 0; cmd_time < (filesize/QSPI_CMD_WRITE_MAX) ; cmd_time++)
 		{
-			qspi_addr = mem_addr + (QSPI_CMD_DATA_MAX * cmd_time);
+			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_DATA_MAX * cmd_time),QSPI_CMD_DATA_MAX))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time),QSPI_CMD_WRITE_MAX))
 			{
 				printf("Failed to ft4222_qspi_cmd_write.\n");
 				success = 0;
@@ -1031,12 +1035,12 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 			msleep(QSPI_MULTI_WR_DELAY);
 		}
 
-		if (filesize%QSPI_CMD_DATA_MAX)
+		if (filesize%QSPI_CMD_WRITE_MAX)
 		{
 			cmd_time++;
-			qspi_addr = mem_addr + (QSPI_CMD_DATA_MAX * cmd_time);
+			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_DATA_MAX * cmd_time),filesize%QSPI_CMD_DATA_MAX))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time),filesize%QSPI_CMD_WRITE_MAX))
 			{
 				printf("Failed to ft4222_qspi_cmd_write.\n");
 				success = 0;
@@ -1062,7 +1066,7 @@ exit:
 
 int main(int argc, char **argv)
 {
-   int division = 128,write_op = 0, read_op = 0,
+   int division = QSPI_DEFAULT_DIV,write_op = 0, read_op = 0,
        addr_set = 0, data_set = 0, show_base = 0,
 	   show_ft4222_ver = 0, dump_show = 0, dump_size = 0,
 	   string_send = 0, script_send = 0, binary_send = 0,
