@@ -30,6 +30,8 @@
 #define QSPI_DUMP_COL_NUM    4
 #define QSPI_DUMP_WORD       4
 #define QSPI_MULTI_WR_DELAY  5
+#define QSPI_SWAP_WORD       1
+#define QSPI_NO_SWAP_WORD    0
 
 #define QSPI_WR_OP_MASK           (1<<7)
 #define QSPI_WRITE_OP             (1<<7)
@@ -774,12 +776,13 @@ exit:
     return success;
 }
 
-static int ft4222_qspi_cmd_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *buffer, uint16_t size)
+static int ft4222_qspi_cmd_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *buffer, uint16_t size, int swap_word)
 {
     int success = 1;
 	int malloc_len, cnt;
 	uint32_t start_base  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 	uint32_t end_base  =((mem_addr + size)/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
+	uint32_t swap_tmp;
 	uint8_t *bufPtr = NULL;
 
 	if (size > QSPI_CMD_WRITE_MAX) {
@@ -815,6 +818,15 @@ static int ft4222_qspi_cmd_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t 
 	bufPtr  = malloc(malloc_len);
 	memset(bufPtr,0x0,malloc_len);
 	memcpy(bufPtr,buffer,size);
+
+	if (swap_word)
+	{
+		for(cnt =0; cnt < malloc_len/QSPI_DUMP_WORD;cnt++)
+		{
+			swap_tmp = *((uint32_t *)(bufPtr + cnt*QSPI_DUMP_WORD));
+			*((uint32_t *)(bufPtr + cnt*QSPI_DUMP_WORD)) = swapLong(swap_tmp);
+		}
+	}
 
 	if (!ft4222_qspi_memory_write(ftHandle, mem_addr, bufPtr, malloc_len))
 	{
@@ -909,7 +921,7 @@ static int ft4222_qspi_memory_write_string(FT_HANDLE ftHandle, uint32_t mem_addr
 	memset(bufPtr,0x0,data_len);
 	hex2data(bufPtr,strbuf,data_len);
 
-	if (!ft4222_qspi_cmd_write(ftHandle, mem_addr, bufPtr, data_len))
+	if (!ft4222_qspi_cmd_write(ftHandle, mem_addr, bufPtr, data_len, QSPI_NO_SWAP_WORD))
 	{
 		printf("Failed to ft4222_qspi_cmd_write.\n");
 		success = 0;
@@ -962,7 +974,7 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time),QSPI_CMD_WRITE_MAX))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), QSPI_CMD_WRITE_MAX, QSPI_NO_SWAP_WORD))
 			{
 				printf("Failed to ft4222_qspi_cmd_write.\n");
 				success = 0;
@@ -975,7 +987,7 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time),data_len%QSPI_CMD_WRITE_MAX))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), data_len%QSPI_CMD_WRITE_MAX, QSPI_NO_SWAP_WORD))
 			{
 				printf("Failed to ft4222_qspi_cmd_write.\n");
 				success = 0;
@@ -987,7 +999,7 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 	{
 		qspi_addr = mem_addr;
 
-		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, data_len))
+		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, data_len, QSPI_NO_SWAP_WORD))
 		{
 			printf("Failed to ft4222_qspi_cmd_write.\n");
 			success = 0;
@@ -1028,7 +1040,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time),QSPI_CMD_WRITE_MAX))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), QSPI_CMD_WRITE_MAX , QSPI_SWAP_WORD))
 			{
 				printf("Failed to ft4222_qspi_cmd_write.\n");
 				success = 0;
@@ -1041,7 +1053,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time),filesize%QSPI_CMD_WRITE_MAX))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), filesize%QSPI_CMD_WRITE_MAX, QSPI_SWAP_WORD))
 			{
 				printf("Failed to ft4222_qspi_cmd_write.\n");
 				success = 0;
@@ -1053,7 +1065,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 	{
 		qspi_addr = mem_addr;
 
-		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, filesize))
+		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, filesize, QSPI_SWAP_WORD))
 		{
 			printf("Failed to ft4222_qspi_cmd_write.\n");
 			success = 0;
