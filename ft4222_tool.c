@@ -29,7 +29,7 @@
 #define QSPI_SCRIPT_MAX_SIZE 4096
 #define QSPI_DUMP_COL_NUM    4
 #define QSPI_DUMP_WORD       4
-#define QSPI_MULTI_WR_DELAY  150
+#define QSPI_MULTI_WR_DELAY  5
 
 #define QSPI_WR_OP_MASK           (1<<7)
 #define QSPI_WRITE_OP             (1<<7)
@@ -332,7 +332,7 @@ static FT4222_SPIClock ft4222_convert_qspiclk(int division)
 
 static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint8_t *buffer, uint16_t bytes)
 {
-    int success = 1, row = 0;
+    int success = 1, row = 0 ,delay_cnt = 1;
 	uint8_t *writeBuffer =  NULL;
 	uint8_t cmd[4]= {0};
 	uint8_t data_length;
@@ -363,6 +363,8 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 			success = 0;
 			goto exit;
 	}
+
+	delay_cnt = bytes/QSPI_DUMP_WORD;
 	cmd[0] = QSPI_WRITE_OP | QSPI_TRANS_DATA | data_length;
 	cmd[1] = (offset >> 18) & 0xFF;
 	cmd[2] = (offset >> 10) & 0xFF;
@@ -402,7 +404,7 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 						0, //multiReadBytes = 0
 						&sizeOfRead);
 	#endif
-	msleep(QSPI_MULTI_WR_DELAY);
+	msleep(delay_cnt*QSPI_MULTI_WR_DELAY);
 
     if (FT4222_OK != ft4222Status)
     {
@@ -437,7 +439,7 @@ exit:
 
 static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8_t *buffer, uint16_t bytes)
 {
-    int success = 1 ,cnt = 0;
+    int success = 1 ,cnt = 0,delay_cnt = 1;
 	uint8_t cmd[4]= {0};
 	uint8_t data_length;
 	FT4222_STATUS  ft4222Status;
@@ -467,6 +469,7 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 			break;
 	}
 
+	delay_cnt = bytes/QSPI_DUMP_WORD;
 	//Send Read Request
 	cmd[0] = QSPI_READ_OP | QSPI_READ_REQUEST | data_length;
 	cmd[1] = (offset >> 18) & 0xFF;
@@ -486,7 +489,7 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 						sizeof(cmd), //multiWriteBytes
 						0, //multiReadBytes = 0
 						&sizeOfRead);
-	msleep(QSPI_MULTI_WR_DELAY);
+	msleep(delay_cnt*QSPI_MULTI_WR_DELAY);
 
     if (FT4222_OK != ft4222Status)
     {
