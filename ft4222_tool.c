@@ -29,7 +29,7 @@
 #define QSPI_SCRIPT_MAX_SIZE 4096
 #define QSPI_DUMP_COL_NUM    4
 #define QSPI_DUMP_WORD       4
-#define QSPI_MULTI_WR_DELAY  50
+#define QSPI_MULTI_WR_DELAY  150
 
 #define QSPI_WR_OP_MASK           (1<<7)
 #define QSPI_WRITE_OP             (1<<7)
@@ -360,7 +360,8 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 			data_length = 5;
 			break;
 		default:
-			break;
+			success = 0;
+			goto exit;
 	}
 	cmd[0] = QSPI_WRITE_OP | QSPI_TRANS_DATA | data_length;
 	cmd[1] = (offset >> 18) & 0xFF;
@@ -825,7 +826,7 @@ exit:
 
 static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16_t size)
 {
-    int success = 1, cmd_time;
+    int success = 1, cmd_time = 0, max_cmd_times = 0;
 	uint32_t qspi_addr = 0;
 
 	if (size > QSPI_DUMP_MAX_SIZE) {
@@ -834,10 +835,10 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
         goto exit;
 	}
 
-	cmd_time = (size/QSPI_CMD_READ_MAX);
+	max_cmd_times = (size/QSPI_CMD_READ_MAX);
 
-	if (cmd_time) {
-		for (cmd_time = 0; cmd_time < (size/QSPI_CMD_READ_MAX) ; cmd_time++)
+	if (max_cmd_times) {
+		for (cmd_time = 0; cmd_time < max_cmd_times; cmd_time++)
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_READ_MAX * cmd_time);
 
@@ -852,7 +853,6 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
 
 		if (size%QSPI_CMD_READ_MAX)
 		{
-			cmd_time++;
 			qspi_addr = mem_addr + (QSPI_CMD_READ_MAX * cmd_time);
 
 			if (!ft4222_qspi_cmd_dump(ftHandle, qspi_addr, size%QSPI_CMD_READ_MAX))
@@ -923,7 +923,7 @@ exit:
 static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_addr, char *script_name)
 {
     int success = 1;
-	int data_len, malloc_len, cmd_time;
+	int data_len, malloc_len, cmd_time, max_cmd_times;
 	uint32_t qspi_addr = 0;
 	size_t filesize;
 	char *buf_script =NULL;
@@ -945,17 +945,17 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 	strcpy(buf_script,replace(buf_script," ",""));
 	removeScriptComments(buf_script, '#');
 	fclose(fp_script);
-	//printf("-S %s",buf_script);
+	//printf("-S len %d %s \n", (int)strlen(buf_script)/2, buf_script);
 
 	data_len = strlen(buf_script)/2;
 	bufPtr  = malloc(data_len);
 	memset(bufPtr,0x0,data_len);
 	hex2data(bufPtr,buf_script,data_len);
 
-	cmd_time = (data_len/QSPI_CMD_WRITE_MAX);
+	max_cmd_times = (data_len/QSPI_CMD_WRITE_MAX);
 
-	if (cmd_time) {
-		for (cmd_time = 0; cmd_time < (data_len/QSPI_CMD_WRITE_MAX) ; cmd_time++)
+	if (max_cmd_times) {
+		for (cmd_time = 0; cmd_time < max_cmd_times ; cmd_time++)
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
@@ -970,7 +970,6 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 
 		if (data_len%QSPI_CMD_WRITE_MAX)
 		{
-			cmd_time++;
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
 			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time),data_len%QSPI_CMD_WRITE_MAX))
@@ -999,7 +998,7 @@ exit:
 
 static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_addr, char *binary_file)
 {
-    int success = 1, cmd_time = 0;
+    int success = 1, cmd_time = 0, max_cmd_times = 0;
 	uint32_t qspi_addr = 0;
 	size_t filesize;
 	uint8_t *bufPtr = NULL;
@@ -1019,10 +1018,10 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 	fread(bufPtr, sizeof(char), filesize, fp_binary);
 	fclose(fp_binary);
 
-	cmd_time = (filesize/QSPI_CMD_WRITE_MAX);
+	max_cmd_times = (filesize/QSPI_CMD_WRITE_MAX);
 
-	if (cmd_time) {
-		for (cmd_time = 0; cmd_time < (filesize/QSPI_CMD_WRITE_MAX) ; cmd_time++)
+	if (max_cmd_times) {
+		for (cmd_time = 0; cmd_time < max_cmd_times; cmd_time++)
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
@@ -1037,7 +1036,6 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 
 		if (filesize%QSPI_CMD_WRITE_MAX)
 		{
-			cmd_time++;
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
 			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time),filesize%QSPI_CMD_WRITE_MAX))
