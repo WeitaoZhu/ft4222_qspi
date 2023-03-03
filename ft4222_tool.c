@@ -406,6 +406,25 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
         success = 0;
         goto exit;
     }
+	#if 0
+    //Send Write Status
+	cmd[0] = QSPI_READ_OP | QSPI_TRANS_STATUS | QSPI_WAIT_CYCLE(0);
+	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
+						ftHandle,
+						buffer, //readBuffer
+						cmd, //writeBuffer
+						0, //singleWriteBytes = 0
+						1, //multiWriteBytes
+						1, //multiReadBytes = 0
+						&sizeOfRead);
+
+	msleep(QSPI_MULTI_WR_DELAY);
+	if (debug_printf) {
+		printf("Write Status cmd:%02x\n",cmd[0]);
+		printf("Write Status:%02x\n",buffer[0]);
+		printf("\n");
+	}
+	#endif
 exit:
 	free(writeBuffer);
     return success;
@@ -471,7 +490,25 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
         success = 0;
         goto exit;
     }
+	#if 0
+    //Send Read Status
+	cmd[0] = QSPI_READ_OP | QSPI_TRANS_STATUS | QSPI_WAIT_CYCLE(0);
+	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
+						ftHandle,
+						buffer, //readBuffer
+						cmd, //writeBuffer
+						0, //singleWriteBytes = 0
+						1, //multiWriteBytes
+						1, //multiReadBytes = 0
+						&sizeOfRead);
 
+	msleep(QSPI_MULTI_WR_DELAY);
+	if (debug_printf) {
+		printf("Read Status cmd:%02x\n",cmd[0]);
+		printf("Read Status:%02x\n",buffer[0]);
+		printf("\n");
+	}
+	#endif
     //Send Read Data
 	cmd[0] = QSPI_READ_OP | QSPI_TRANS_DATA | QSPI_WAIT_CYCLE(0) | data_length;
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
