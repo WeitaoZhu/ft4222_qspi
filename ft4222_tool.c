@@ -44,14 +44,15 @@
 #define QSPI_READ_REQ_LEN         0x00
 
 static int debug_printf=0;
-static const char *const short_options = "bhvrwga:D:d:p:s:S:";
+static const char *const short_options = "bhvrwga:B:D:d:p:s:S:";
 static const struct option long_options[] = {
    {"base", no_argument, NULL, 'b'},
+   {"binary", required_argument, NULL, 'B'},
    {"help", no_argument, NULL, 'h'},
    {"version", no_argument, NULL, 'v'},
    {"addr", required_argument, NULL, 'a'},
    {"div", required_argument, NULL, 'd'},
-   {"Data", required_argument, NULL, 'D'},
+   {"data", required_argument, NULL, 'D'},
    {"debug", no_argument, NULL, 'g'},
    {"dump", required_argument, NULL, 'p'},
    {"read", no_argument, NULL, 'r'},
@@ -65,10 +66,11 @@ static void print_usage(FILE * stream, char *app_name, int exit_code)
 {
    fprintf(stream, "Usage: %s [options]\n", app_name);
    fprintf(stream,
-      " -a  --Addr <address>      Setting QSPI access address.\n"
+      " -a  --addr <address>      Setting QSPI access address.\n"
       " -b  --base                Display SPI2AHB Base Address.\n"
+      " -B  --binary <file>       QSPI Write with binary file.\n"
       " -d  --div <division>      Setting QSPI CLOCK with 80MHz/<division>.\n"
-      " -D  --Data <value>        Setting QSPI Send data value.\n"
+      " -D  --data <value>        Setting QSPI Send data value.\n"
       " -g  --debug               Display QSPI W/R Send Data Info.\n"
       " -h  --help                Display this usage information.\n"
       " -p  --dump <size>         Dump Address size Context.\n"
@@ -945,42 +947,94 @@ exit:
     return success;
 }
 
+static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_addr, char *binary_file)
+{
+    int success = 1, cmd_time = 0;
+	uint32_t qspi_addr = 0;
+	size_t filesize;
+	uint8_t *bufPtr = NULL;
+    FILE *fp_binary;
+
+    fp_binary =fopen(binary_file,"rb");
+	if (!fp_binary)
+	{
+		printf("cannot open file: %s \n",binary_file);
+		success = 0;
+		goto exit;
+	}
+
+	filesize = get_file_size(binary_file);
+	bufPtr = malloc(filesize);
+	memset(bufPtr,0x0,filesize);
+	fread(bufPtr, sizeof(char), filesize, fp_binary);
+	fclose(fp_binary);
+
+	cmd_time = (filesize/QSPI_CMD_DATA_MAX);
+
+	if (cmd_time) {
+		for (cmd_time = 0; cmd_time < (filesize/QSPI_CMD_DATA_MAX) ; cmd_time++)
+		{
+			qspi_addr = mem_addr + (QSPI_CMD_DATA_MAX * cmd_time);
+
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_DATA_MAX * cmd_time),QSPI_CMD_DATA_MAX))
+			{
+				printf("Failed to ft4222_qspi_cmd_write.\n");
+				success = 0;
+				goto exit;
+			}
+			msleep(QSPI_MULTI_WR_DELAY);
+		}
+
+		if (filesize%QSPI_CMD_DATA_MAX)
+		{
+			cmd_time++;
+			qspi_addr = mem_addr + (QSPI_CMD_DATA_MAX * cmd_time);
+
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_DATA_MAX * cmd_time),filesize%QSPI_CMD_DATA_MAX))
+			{
+				printf("Failed to ft4222_qspi_cmd_write.\n");
+				success = 0;
+				goto exit;
+			}
+		}
+	}
+	else
+	{
+		qspi_addr = mem_addr;
+
+		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, filesize))
+		{
+			printf("Failed to ft4222_qspi_cmd_write.\n");
+			success = 0;
+			goto exit;
+		}
+	}
+
+exit:
+    return success;
+}
 
 int main(int argc, char **argv)
 {
+   int division = 128,write_op = 0, read_op = 0,
+       addr_set = 0, data_set = 0, show_base = 0,
+	   show_ft4222_ver = 0, dump_show = 0, dump_size = 0,
+	   string_send = 0, script_send = 0, binary_send = 0,
+	   i = 0, retCode = 0, found4222 = 0,
+	   next_option;  /* getopt iteration var */
+
    FT_STATUS                 ftStatus;
    FT4222_STATUS             ft4222Status;
    FT_HANDLE                 ftHandle = (FT_HANDLE)NULL;
    FT_DEVICE_LIST_INFO_NODE  *devInfo = NULL;
-   FT4222_SPIClock           ftQspiClk = 0;
+   FT4222_SPIClock           ftQspiClk = ft4222_convert_qspiclk(division); //Set QSPI CLK default CLK_DIV_128 80M/128=625Khz
    DWORD                     numDevs = 0;
    DWORD                     ft4222_LocId;
    size_t                    strLength;
    char                      *strbuf = NULL;
-   char                      *scriptFile= NULL;
-   unsigned int              addr,spi2ahb_base,data_value,tmp_value;
-   int                       i;
-   int                       retCode = 0;
-   int                       found4222 = 0;	
+   char                      *scriptFile= NULL, *binaryFile= NULL;
+   unsigned int              addr,spi2ahb_base,data_value,tmp_value = 0x0;
 
-   int fd;
-   int division,write_op,read_op,addr_set,data_set,show_base,show_ft4222_ver,dump_show,dump_size,string_send,script_send;
-   int next_option;   /* getopt iteration var */
- 
-   /* Init variables */
-   division = 128;
-   ftQspiClk = ft4222_convert_qspiclk(division);  //Set QSPI CLK default CLK_DIV_128 80M/128=625Khz
-   write_op = 0;
-   read_op = 0;
-   addr_set = 0;
-   data_set = 0;
-   tmp_value = 0;
-   show_base =0;
-   show_ft4222_ver =0;
-   dump_show = 0;
-   string_send =0;
-   script_send =0;
-   
     ftStatus = FT_CreateDeviceInfoList(&numDevs);
     if (ftStatus != FT_OK) 
     {
@@ -1050,6 +1104,12 @@ int main(int argc, char **argv)
       case 'b':
 			show_base = 1;
 		 break;
+	  case 'B':
+			strLength = strlen(optarg);
+			binaryFile = malloc(strLength);
+			strcpy(binaryFile,replace(optarg," ",""));
+			binary_send = 1;
+		 break; 
       case 'a':
 	     addr = get_ul_number(optarg);
 		 addr_set = 1;
@@ -1169,6 +1229,16 @@ int main(int argc, char **argv)
 	    }
     }
 
+    if (binary_send)
+    {
+	    if (addr_set == 0)
+	    {
+			printf("ft4222 work in binary file write mode,addr is missing\n");
+			retCode = -30;
+			goto ft4222_exit;
+	    }
+    }
+
     // Configure the FT4222 as an SPI Master.
     ft4222Status = FT4222_SPIMaster_Init(
                         ftHandle,
@@ -1185,9 +1255,9 @@ int main(int argc, char **argv)
     }
 
     ft4222Status = FT4222_SPI_SetDrivingStrength(ftHandle,
-                                                 DS_12MA,
-                                                 DS_12MA,
-                                                 DS_12MA);
+                                                 DS_16MA,
+                                                 DS_16MA,
+                                                 DS_16MA);
     if (FT4222_OK != ft4222Status)
     {
         printf("FT4222_SPI_SetDrivingStrength failed (error %d)\n",
@@ -1209,6 +1279,10 @@ int main(int argc, char **argv)
 
 	if (script_send) {
 		ft4222_qspi_memory_write_scriptfile(ftHandle, addr, scriptFile);
+	}
+
+	if (binary_send) {
+		ft4222_qspi_memory_write_binaryfile(ftHandle, addr, binaryFile);
 	}
 
 	if (read_op) {
