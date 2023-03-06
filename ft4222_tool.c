@@ -75,7 +75,7 @@ static const struct option long_options[] = {
 
 static void print_usage(FILE * stream, char *app_name, int exit_code)
 {
-   fprintf(stream, "Usage: %s %s [options]\n", app_name, FT4222_QSPI_TOOL_GIT_TAG);
+   fprintf(stream, "Usage: %s %s-%s [options]\n", app_name, FT4222_QSPI_TOOL_GIT_TAG, FT4222_QSPI_TOOL_GIT_COMMIT);
    fprintf(stream,
       " -a  --addr <address>      Setting QSPI access address.\n"
       " -b  --base                Display SPI2AHB Base Address.\n"
@@ -1303,7 +1303,10 @@ int main(int argc, char **argv)
     }
 
 	if (show_ft4222_ver)
+	{
+		printf("%s %s-%s\n", argv[0], FT4222_QSPI_TOOL_GIT_TAG, FT4222_QSPI_TOOL_GIT_COMMIT);
 		showVersion(ftHandle);
+	}
 
 	if (debug_printf)
 		printf("[QSPI CLK] %d Hz\n",QSPI_SYS_CLK/division);
