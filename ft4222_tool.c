@@ -29,7 +29,7 @@
 #define QSPI_SCRIPT_MAX_SIZE 4096
 #define QSPI_DUMP_COL_NUM    4
 #define QSPI_DUMP_WORD       4
-#define QSPI_MULTI_WR_DELAY  5
+#define QSPI_MULTI_WR_DELAY  8
 #define QSPI_SWAP_WORD       1
 #define QSPI_NO_SWAP_WORD    0
 
@@ -128,6 +128,14 @@ static uint32_t swapLong(uint32_t ldata)
 static void msleep(unsigned int msecs)
 {
 	usleep(msecs*1000);
+}
+
+static void show_progress_bar(int cnt)
+{
+	printf("%2d%%\n",cnt);
+	printf("\033[1A");
+	printf("\r");
+	return;
 }
 
 const char * replace(
@@ -938,7 +946,7 @@ exit:
 static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_addr, char *script_name)
 {
     int success = 1;
-	int data_len, malloc_len, cmd_time, max_cmd_times;
+	int data_len, malloc_len, cmd_time, max_cmd_times, process_times;
 	uint32_t qspi_addr = 0;
 	size_t filesize;
 	char *buf_script =NULL;
@@ -968,6 +976,7 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 	hex2data(bufPtr,buf_script,data_len);
 
 	max_cmd_times = (data_len/QSPI_CMD_WRITE_MAX);
+	process_times = (data_len%QSPI_CMD_WRITE_MAX) ? max_cmd_times : (max_cmd_times + 1);
 
 	if (max_cmd_times) {
 		for (cmd_time = 0; cmd_time < max_cmd_times ; cmd_time++)
@@ -980,6 +989,7 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 				success = 0;
 				goto exit;
 			}
+			show_progress_bar((cmd_time*100)/process_times);
 			msleep(QSPI_MULTI_WR_DELAY);
 		}
 
@@ -993,6 +1003,7 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 				success = 0;
 				goto exit;
 			}
+			show_progress_bar((cmd_time*100)/process_times);
 		}
 	}
 	else
@@ -1013,7 +1024,7 @@ exit:
 
 static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_addr, char *binary_file)
 {
-    int success = 1, cmd_time = 0, max_cmd_times = 0;
+    int success = 1, cmd_time = 0, max_cmd_times = 0, process_times = 0;
 	uint32_t qspi_addr = 0;
 	size_t filesize;
 	uint8_t *bufPtr = NULL;
@@ -1034,6 +1045,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 	fclose(fp_binary);
 
 	max_cmd_times = (filesize/QSPI_CMD_WRITE_MAX);
+	process_times = (filesize%QSPI_CMD_WRITE_MAX) ? max_cmd_times : (max_cmd_times + 1);
 
 	if (max_cmd_times) {
 		for (cmd_time = 0; cmd_time < max_cmd_times; cmd_time++)
@@ -1046,6 +1058,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 				success = 0;
 				goto exit;
 			}
+			show_progress_bar((cmd_time*100)/process_times);
 			msleep(QSPI_MULTI_WR_DELAY);
 		}
 
@@ -1059,6 +1072,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 				success = 0;
 				goto exit;
 			}
+			show_progress_bar((cmd_time*100)/process_times);
 		}
 	}
 	else
