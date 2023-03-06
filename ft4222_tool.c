@@ -30,9 +30,13 @@
 #define QSPI_DUMP_COL_NUM    4
 #define QSPI_DUMP_WORD       4
 #define QSPI_MULTI_WR_DELAY  8
+#define QSPI_MULTI_WR_RETRY  25
 #define QSPI_SWAP_WORD       1
 #define QSPI_NO_SWAP_WORD    0
+#define QSPI_STATUS_ENABLE   1
 
+
+#define QSPI_WR_READY             (1<<7)
 #define QSPI_WR_OP_MASK           (1<<7)
 #define QSPI_WRITE_OP             (1<<7)
 #define QSPI_READ_OP              (0<<7)
@@ -340,12 +344,67 @@ static FT4222_SPIClock ft4222_convert_qspiclk(int division)
 	return ftQspiClk;
 }
 
+static uint8_t ft4222_qspi_get_read_status(FT_HANDLE ftHandle)
+{
+	uint8_t cmd[4]    = {0};
+	uint8_t buffer[4] = {0};
+	FT4222_STATUS  ft4222Status;
+	uint32_t sizeOfRead;
+
+    //Send Read Status
+	cmd[0] = QSPI_READ_OP | QSPI_TRANS_STATUS | QSPI_WAIT_CYCLE(0);
+	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
+						ftHandle,
+						buffer, //readBuffer
+						cmd, //writeBuffer
+						0, //singleWriteBytes = 0
+						1, //multiWriteBytes
+						1, //multiReadBytes = 0
+						&sizeOfRead);
+	msleep(1);
+	if (debug_printf) {
+		printf("Get Status cmd:%02x\n",cmd[0]);
+		printf("Get Status:%02x\n",buffer[0]);
+		printf("\n");
+	}
+
+    return buffer[0];
+}
+
+static uint8_t ft4222_qspi_get_write_status(FT_HANDLE ftHandle)
+{
+	uint8_t cmd[4]    = {0};
+	uint8_t buffer[4] = {0};
+	FT4222_STATUS  ft4222Status;
+	uint32_t sizeOfRead;
+
+    //Send Read Status
+	cmd[0] = QSPI_WRITE_OP | QSPI_TRANS_STATUS | QSPI_WAIT_CYCLE(0);
+	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
+						ftHandle,
+						buffer, //readBuffer
+						cmd, //writeBuffer
+						0, //singleWriteBytes = 0
+						1, //multiWriteBytes
+						1, //multiReadBytes = 0
+						&sizeOfRead);
+	msleep(1);
+	if (debug_printf) {
+		printf("Get Status cmd:%02x\n",cmd[0]);
+		printf("Get Status:%02x\n",buffer[0]);
+		printf("\n");
+	}
+
+    return buffer[0];
+}
+
+
 static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint8_t *buffer, uint16_t bytes)
 {
-    int success = 1, row = 0 ,delay_cnt = 1;
+    int success = 1, row = 0 ,delay_cnt = 1 ,retry_times = 0;
 	uint8_t *writeBuffer =  NULL;
 	uint8_t cmd[4]= {0};
-	uint8_t data_length;
+	uint8_t data_length,w_status = 0x0;
 	FT4222_STATUS  ft4222Status = FT4222_OK;
 	uint32_t sizeOfRead;
 
@@ -404,7 +463,7 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 		printf("\n");
 		printf("\n");
 	}
-	#if 1
+
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
 						ftHandle,
 						NULL, //readBuffer
@@ -413,7 +472,6 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 						bytes + sizeof(cmd), //multiWriteBytes
 						0, //multiReadBytes = 0
 						&sizeOfRead);
-	#endif
 	msleep(delay_cnt*QSPI_MULTI_WR_DELAY);
 
     if (FT4222_OK != ft4222Status)
@@ -423,23 +481,19 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
         success = 0;
         goto exit;
     }
-	#if 0
-    //Send Write Status
-	cmd[0] = QSPI_READ_OP | QSPI_TRANS_STATUS | QSPI_WAIT_CYCLE(0);
-	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
-						ftHandle,
-						buffer, //readBuffer
-						cmd, //writeBuffer
-						0, //singleWriteBytes = 0
-						1, //multiWriteBytes
-						1, //multiReadBytes = 0
-						&sizeOfRead);
 
-	msleep(QSPI_MULTI_WR_DELAY);
-	if (debug_printf) {
-		printf("Write Status cmd:%02x\n",cmd[0]);
-		printf("Write Status:%02x\n",buffer[0]);
-		printf("\n");
+	#if QSPI_STATUS_ENABLE
+	while(!(QSPI_WR_READY & (w_status = ft4222_qspi_get_read_status(ftHandle))))
+	{
+		retry_times ++;
+		if (retry_times > QSPI_MULTI_WR_RETRY)
+		{
+			printf("ft4222_qspi_get_write_status retry tiemout w_status %02x!\n",
+				   w_status);
+			success = 0;
+			goto exit;
+		}
+		msleep(delay_cnt*QSPI_MULTI_WR_DELAY);
 	}
 	#endif
 exit:
@@ -449,9 +503,9 @@ exit:
 
 static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8_t *buffer, uint16_t bytes)
 {
-    int success = 1 ,cnt = 0,delay_cnt = 1;
+    int success = 1 ,cnt = 0,delay_cnt = 1 ,retry_times = 0;;
 	uint8_t cmd[4]= {0};
-	uint8_t data_length;
+	uint8_t data_length, r_status = 0x0;
 	FT4222_STATUS  ft4222Status;
 	uint32_t sizeOfRead;
 
@@ -508,25 +562,22 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
         success = 0;
         goto exit;
     }
-	#if 0
-    //Send Read Status
-	cmd[0] = QSPI_READ_OP | QSPI_TRANS_STATUS | QSPI_WAIT_CYCLE(0);
-	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
-						ftHandle,
-						buffer, //readBuffer
-						cmd, //writeBuffer
-						0, //singleWriteBytes = 0
-						1, //multiWriteBytes
-						1, //multiReadBytes = 0
-						&sizeOfRead);
 
-	msleep(QSPI_MULTI_WR_DELAY);
-	if (debug_printf) {
-		printf("Read Status cmd:%02x\n",cmd[0]);
-		printf("Read Status:%02x\n",buffer[0]);
-		printf("\n");
+	#if QSPI_STATUS_ENABLE
+	while(!(QSPI_WR_READY & (r_status = ft4222_qspi_get_read_status(ftHandle))))
+	{
+		retry_times ++;
+		if (retry_times > QSPI_MULTI_WR_RETRY)
+		{
+			printf("ft4222_qspi_get_read_status retry tiemout r_status %02x!\n",
+				   r_status);
+			success = 0;
+			goto next;
+		}
+		msleep(delay_cnt*QSPI_MULTI_WR_DELAY);
 	}
 	#endif
+next:
     //Send Read Data
 	cmd[0] = QSPI_READ_OP | QSPI_TRANS_DATA | QSPI_WAIT_CYCLE(0) | data_length;
 	ft4222Status = FT4222_SPIMaster_MultiReadWrite(
@@ -538,7 +589,7 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 						bytes, //multiReadBytes = 0
 						&sizeOfRead);
 
-	msleep(QSPI_MULTI_WR_DELAY);
+	msleep(delay_cnt*QSPI_MULTI_WR_DELAY);
 
     if (FT4222_OK != ft4222Status)
     {
@@ -1332,9 +1383,9 @@ int main(int argc, char **argv)
     }
 
     ft4222Status = FT4222_SPI_SetDrivingStrength(ftHandle,
-                                                 DS_16MA,
-                                                 DS_16MA,
-                                                 DS_16MA);
+                                                 DS_4MA,
+                                                 DS_4MA,
+                                                 DS_4MA);
     if (FT4222_OK != ft4222Status)
     {
         printf("FT4222_SPI_SetDrivingStrength failed (error %d)\n",
