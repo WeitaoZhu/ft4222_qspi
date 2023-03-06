@@ -11,6 +11,7 @@
 #include <getopt.h>
 #include <errno.h>
 #include <unistd.h>
+#include "version.h"
 
 // SPI Master can assert SS0O in single mode
 // SS0O and SS1O in dual mode, and
@@ -74,7 +75,7 @@ static const struct option long_options[] = {
 
 static void print_usage(FILE * stream, char *app_name, int exit_code)
 {
-   fprintf(stream, "Usage: %s [options]\n", app_name);
+   fprintf(stream, "Usage: %s %s [options]\n", app_name, FT4222_QSPI_TOOL_GIT_TAG);
    fprintf(stream,
       " -a  --addr <address>      Setting QSPI access address.\n"
       " -b  --base                Display SPI2AHB Base Address.\n"
