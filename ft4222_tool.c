@@ -30,8 +30,8 @@
 #define QSPI_SCRIPT_MAX_SIZE 4096
 #define QSPI_DUMP_COL_NUM    4
 #define QSPI_DUMP_WORD       4
-#define QSPI_MULTI_WR_DELAY  8
-#define QSPI_MULTI_WR_RETRY  25
+#define QSPI_MULTI_WR_DELAY  50
+#define QSPI_MULTI_WR_RETRY  10
 #define QSPI_SWAP_WORD       1
 #define QSPI_NO_SWAP_WORD    0
 #define QSPI_STATUS_ENABLE   1
@@ -56,11 +56,11 @@
 
 GPIO_Dir gpioDir[4] = {GPIO_INPUT, GPIO_INPUT, GPIO_INPUT, GPIO_INPUT};
 
-static int debug_printf=0;
+static int debug_printf=0, delay_cycle=QSPI_MULTI_WR_DELAY, io_Loading=DS_8MA;
 static uint32_t qspi_store_base=0x90000000;
 char ft4222A_desc[64];
 char ft4222B_desc[64];
-static const char *const short_options = "bhVrwga:B:D:d:p:s:S:v:";
+static const char *const short_options = "bhVrwga:B:D:d:l:L:p:s:S:v:";
 static const struct option long_options[] = {
    {"base", no_argument, NULL, 'b'},
    {"Binary", required_argument, NULL, 'B'},
@@ -69,6 +69,8 @@ static const struct option long_options[] = {
    {"div", required_argument, NULL, 'd'},
    {"Data", required_argument, NULL, 'D'},
    {"debug", no_argument, NULL, 'g'},
+   {"delay", required_argument, NULL, 'l'},
+   {"Load", required_argument, NULL, 'L'},
    {"dump", required_argument, NULL, 'p'},
    {"read", no_argument, NULL, 'r'},
    {"string", required_argument, NULL, 's'},
@@ -90,6 +92,7 @@ static void print_usage(FILE * stream, char *app_name, int exit_code)
       " -D  --Data <value>        Setting QSPI Send data value.\n"
       " -g  --debug               Display QSPI W/R Send Data Info.\n"
       " -h  --help                Display this usage information.\n"
+	  " -l  --delay               Setting QSPI CMD Send Operation Delay.\n"
       " -p  --dump <size>         Dump Address size Context.\n"
 	  " -r  --read                Setting QSPI Read Operation.\n"
       " -s  --string <string>     QSPI Write with string.\n"
@@ -543,7 +546,8 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 						bytes + sizeof(cmd), //multiWriteBytes
 						0, //multiReadBytes = 0
 						&sizeOfRead);
-	msleep(delay_cnt*QSPI_MULTI_WR_DELAY);
+	//msleep(delay_cnt*delay_cycle);
+	msleep(delay_cycle);
 
     if (FT4222_OK != ft4222Status)
     {
@@ -564,7 +568,8 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 			success = 0;
 			goto exit;
 		}
-		msleep(delay_cnt*QSPI_MULTI_WR_DELAY);
+		//msleep(delay_cnt*delay_cycle);
+		msleep(delay_cycle);
 	}
 	#endif
 exit:
@@ -624,7 +629,8 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 						sizeof(cmd), //multiWriteBytes
 						0, //multiReadBytes = 0
 						&sizeOfRead);
-	msleep(delay_cnt*QSPI_MULTI_WR_DELAY);
+	//msleep(delay_cnt*delay_cycle);
+	msleep(delay_cycle);
 
     if (FT4222_OK != ft4222Status)
     {
@@ -645,7 +651,8 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 			success = 0;
 			goto next;
 		}
-		msleep(delay_cnt*QSPI_MULTI_WR_DELAY);
+		//msleep(delay_cnt*delay_cycle);
+		msleep(delay_cycle);
 	}
 	#endif
 next:
@@ -660,7 +667,8 @@ next:
 						bytes, //multiReadBytes = 0
 						&sizeOfRead);
 
-	msleep(delay_cnt*QSPI_MULTI_WR_DELAY);
+	//msleep(delay_cnt*delay_cycle);
+	msleep(delay_cycle);
 
     if (FT4222_OK != ft4222Status)
     {
@@ -971,7 +979,7 @@ static int ft4222_qspi_cmd_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t 
 		success = 0;
         goto exit;
 	}
-	msleep(QSPI_MULTI_WR_DELAY);
+	msleep(delay_cycle);
 exit:
     return success;
 }
@@ -1000,7 +1008,7 @@ static int ft4222_qspi_memory_dump(FT_HANDLE ftHandle, uint32_t mem_addr, uint16
 				success = 0;
 				goto exit;
 			}
-			msleep(QSPI_MULTI_WR_DELAY);
+			msleep(delay_cycle);
 		}
 
 		if (size%QSPI_CMD_READ_MAX)
@@ -1064,7 +1072,7 @@ static int ft4222_qspi_memory_write_string(FT_HANDLE ftHandle, uint32_t mem_addr
 		success = 0;
 		goto exit;
 	}
-	msleep(QSPI_MULTI_WR_DELAY);
+	msleep(delay_cycle);
 exit:
 	if (bufPtr != NULL)
 		free(bufPtr);
@@ -1119,7 +1127,7 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 				goto exit;
 			}
 			show_progress_bar((cmd_time*100)/process_times);
-			msleep(QSPI_MULTI_WR_DELAY);
+			msleep(delay_cycle);
 		}
 
 		if (data_len%QSPI_CMD_WRITE_MAX)
@@ -1183,12 +1191,12 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 
 			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), QSPI_CMD_WRITE_MAX , QSPI_SWAP_WORD))
 			{
-				printf("Failed to ft4222_qspi_cmd_write.\n");
+				printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 				success = 0;
 				goto exit;
 			}
 			show_progress_bar((cmd_time*100)/process_times);
-			msleep(QSPI_MULTI_WR_DELAY);
+			msleep(delay_cycle);
 		}
 
 		if (filesize%QSPI_CMD_WRITE_MAX)
@@ -1197,7 +1205,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 
 			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), filesize%QSPI_CMD_WRITE_MAX, QSPI_SWAP_WORD))
 			{
-				printf("Failed to ft4222_qspi_cmd_write.\n");
+				printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 				success = 0;
 				goto exit;
 			}
@@ -1210,7 +1218,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 
 		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, filesize, QSPI_SWAP_WORD))
 		{
-			printf("Failed to ft4222_qspi_cmd_write.\n");
+			printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 			success = 0;
 			goto exit;
 		}
@@ -1333,6 +1341,17 @@ int main(int argc, char **argv)
          break;
       case 'g':
 			debug_printf = 1;
+         break;
+      case 'l':
+			delay_cycle = atoi(optarg);
+         break;
+      case 'L':
+			io_Loading = atoi(optarg);
+			if ((io_Loading < DS_4MA) || (io_Loading > DS_16MA))
+			{
+				printf("io_Loading setting %d is not @DS_4MA ~ DS_16MA\n",io_Loading);
+				print_usage(stderr, argv[0], EXIT_FAILURE);
+			}
          break;
       case 'h':
          print_usage(stdout, argv[0], EXIT_SUCCESS);
@@ -1489,9 +1508,9 @@ int main(int argc, char **argv)
     }
 
     ft4222Status = FT4222_SPI_SetDrivingStrength(ft4222AHandle,
-                                                 DS_16MA,
-                                                 DS_16MA,
-                                                 DS_16MA);
+                                                 io_Loading,
+                                                 io_Loading,
+                                                 io_Loading);
     if (FT4222_OK != ft4222Status)
     {
         printf("FT4222_SPI_SetDrivingStrength failed (error %d)\n",
