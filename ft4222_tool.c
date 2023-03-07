@@ -724,6 +724,7 @@ static int ft4222_qspi_check_base(FT_HANDLE ftHandle, uint32_t mem_addr)
 			success = 0;
 			goto exit;
 		}
+		//printf("qspi_store_base: %08x  qspi_base_addr:%08x set_base_addr:%08x.\n",qspi_store_base,qspi_base_addr,set_base_addr);
 	}
 	else
 		goto exit;
@@ -745,7 +746,7 @@ retry_switch:
 			success = 0;
 			goto exit;
 		}
-		msleep(500);
+		msleep(delay_cycle);
 
 		if (!ft4222_qspi_get_base(ftHandle, &qspi_base_addr))
 		{
@@ -764,10 +765,10 @@ retry_switch:
 			success = 0;
 			goto exit;
 		}
-		qspi_base_addr = set_base_addr;
 	}
 
 exit:
+	qspi_store_base = set_base_addr;
     return success;
 }
 
