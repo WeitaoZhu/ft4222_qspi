@@ -54,22 +54,28 @@
 #define QSPI_DATA_LENGTH_MASK     0x07
 #define QSPI_READ_REQ_LEN         0x00
 
+GPIO_Dir gpioDir[4] = {GPIO_INPUT, GPIO_INPUT, GPIO_INPUT, GPIO_INPUT};
+
 static int debug_printf=0;
-static const char *const short_options = "bhvrwga:B:D:d:p:s:S:";
+static uint32_t qspi_store_base=0x90000000;
+char ft4222A_desc[64];
+char ft4222B_desc[64];
+static const char *const short_options = "bhVrwga:B:D:d:p:s:S:v:";
 static const struct option long_options[] = {
    {"base", no_argument, NULL, 'b'},
-   {"binary", required_argument, NULL, 'B'},
+   {"Binary", required_argument, NULL, 'B'},
    {"help", no_argument, NULL, 'h'},
-   {"version", no_argument, NULL, 'v'},
    {"addr", required_argument, NULL, 'a'},
    {"div", required_argument, NULL, 'd'},
-   {"data", required_argument, NULL, 'D'},
+   {"Data", required_argument, NULL, 'D'},
    {"debug", no_argument, NULL, 'g'},
    {"dump", required_argument, NULL, 'p'},
    {"read", no_argument, NULL, 'r'},
    {"string", required_argument, NULL, 's'},
-   {"script", required_argument, NULL, 'S'},
+   {"Script", required_argument, NULL, 'S'},
    {"write", no_argument, NULL, 'w'},
+   {"Version", no_argument, NULL, 'V'},
+   {"voltage", required_argument, NULL, 'v'},
    {NULL, no_argument, NULL, 0},
 };
 
@@ -79,17 +85,18 @@ static void print_usage(FILE * stream, char *app_name, int exit_code)
    fprintf(stream,
       " -a  --addr <address>      Setting QSPI access address.\n"
       " -b  --base                Display SPI2AHB Base Address.\n"
-      " -B  --binary <file>       QSPI Write with binary file.\n"
+      " -B  --Binary <file>       QSPI Write with binary file.\n"
       " -d  --div <division>      Setting QSPI CLOCK with 80MHz/<division>.\n"
-      " -D  --data <value>        Setting QSPI Send data value.\n"
+      " -D  --Data <value>        Setting QSPI Send data value.\n"
       " -g  --debug               Display QSPI W/R Send Data Info.\n"
       " -h  --help                Display this usage information.\n"
       " -p  --dump <size>         Dump Address size Context.\n"
 	  " -r  --read                Setting QSPI Read Operation.\n"
       " -s  --string <string>     QSPI Write with string.\n"
-      " -S  --script <text file>  QSPI Write with file context.\n"
+      " -S  --Script <text file>  QSPI Write with file context.\n"
       " -w  --write               Setting QSPI Write Operation.\n"
-      " -v  --version             Display FT4222 Chip version and LibFT4222 version.\n");
+      " -V  --Version             Display FT4222 Chip version and LibFT4222 version.\n"
+      " -v  --voltage             Setting QSPI IO voltage .\n");
  
    exit(exit_code);
 }
@@ -237,7 +244,7 @@ static int get_file_size(char *filename)
 	return -1;
 }
 
-static void showVersion(FT_HANDLE ftHandle)
+static void showVersion(FT_HANDLE ftHandle, char *desc)
 {
     FT_STATUS            ftStatus;
     FT4222_STATUS        ft4222Status;
@@ -253,6 +260,7 @@ static void showVersion(FT_HANDLE ftHandle)
     }
     else
     {
+		printf("\nDevice: '%s'\n",desc);
         printf("Chip version: %08X, LibFT4222 version: %08X\n",
                (unsigned int)ft4222Version.chipVersion,
                (unsigned int)ft4222Version.dllVersion);
@@ -344,6 +352,68 @@ static FT4222_SPIClock ft4222_convert_qspiclk(int division)
 	}
 	return ftQspiClk;
 }
+
+static void IOx_Index_SetOut(FT_HANDLE ftHandle_B, uint8_t bIOx_Index)
+{
+	FT4222_STATUS  ft4222Status;
+
+	gpioDir[bIOx_Index] = GPIO_OUTPUT;
+	ft4222Status = FT4222_GPIO_Init(ftHandle_B, &gpioDir[0]);
+}
+
+void IOx_Index_SetValue(FT_HANDLE ftHandle_B, uint8_t bIOx_Index, int iValue)
+{
+	FT4222_STATUS  ft4222Status;
+	GPIO_Port GPIO_PortX = GPIO_PORT2;
+
+	switch (bIOx_Index)
+	{
+		case 0x02:
+			GPIO_PortX = GPIO_PORT2;
+			break;
+
+		case 0x03:
+			GPIO_PortX = GPIO_PORT3;
+			break;
+
+		default:
+			break;
+	}
+	BOOL bIO_Value = (iValue == 0) ? FALSE : TRUE;
+	ft4222Status = FT4222_GPIO_Write(ftHandle_B, GPIO_PortX, bIO_Value);
+}
+
+void Config_Init(FT_HANDLE ftHandle_B)
+{
+	IOx_Index_SetOut(ftHandle_B,0x03);
+	IOx_Index_SetValue(ftHandle_B,0x03, 1);
+	FT4222_I2CMaster_Init(ftHandle_B, 100);
+}
+
+BOOL Config_Set_VIO_2(FT_HANDLE ftHandle_B, uint16_t iValue)
+        {
+            uint16_t iSizeTransferred = 0;
+            uint8_t writeBuffer[3];
+
+            writeBuffer[0] = 0x60;
+            writeBuffer[1] = (uint8_t)(iValue >> 8);
+            writeBuffer[2] = (uint8_t)(iValue & 0xFF);
+
+            if (FT4222_OK == FT4222_I2CMaster_Write(ftHandle_B, (uint16_t)0x61, writeBuffer, (uint16_t)3, &iSizeTransferred))
+                return (TRUE);
+
+            return (FALSE);
+        }
+
+BOOL Config_Set_VIO(FT_HANDLE ftHandle_B, double VIO)
+        {
+            Config_Init(ftHandle_B);
+
+            uint16_t iValue = (uint16_t)(((2 * VIO - 3.3) / 3.3) * 65535);
+            BOOL bValue = Config_Set_VIO_2(ftHandle_B, iValue);
+
+            return (bValue);
+        }
 
 static uint8_t ft4222_qspi_get_read_status(FT_HANDLE ftHandle)
 {
@@ -636,28 +706,34 @@ static int ft4222_qspi_check_base(FT_HANDLE ftHandle, uint32_t mem_addr)
 	int success = 1, retry=0;
 	uint8_t  qspi_base[4]= {0};
 	uint32_t qspi_base_addr =0;
-	uint32_t base_addr  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
+	uint32_t set_base_addr  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 
-	if (!ft4222_qspi_get_base(ftHandle, &qspi_base_addr))
+	if (qspi_store_base != set_base_addr)
 	{
-        printf("Failed to ft4222_qspi_get_base.\n");
-		success = 0;
-        goto exit;
+		if (!ft4222_qspi_get_base(ftHandle, &qspi_base_addr))
+		{
+			printf("Failed to ft4222_qspi_get_base.\n");
+			success = 0;
+			goto exit;
+		}
 	}
+	else
+		goto exit;
+
 
 retry_switch:
 
 	// Check QSPI Base Address
-	if (qspi_base_addr != base_addr)
+	if (qspi_base_addr != set_base_addr)
 	{
-		qspi_base[0] = (base_addr >> 24) & 0xFF;
-		qspi_base[1] = (base_addr >> 16) & 0xFF;
-		qspi_base[2] = (base_addr >>  8) & 0xFF;
-		qspi_base[3] = (base_addr >>  0) & 0xFF;
+		qspi_base[0] = (set_base_addr >> 24) & 0xFF;
+		qspi_base[1] = (set_base_addr >> 16) & 0xFF;
+		qspi_base[2] = (set_base_addr >>  8) & 0xFF;
+		qspi_base[3] = (set_base_addr >>  0) & 0xFF;
 
 		if (!ft4222_qspi_write_nword(ftHandle, QSPI_SET_BASE_ADDR, qspi_base, sizeof(qspi_base)))
 		{
-			printf("Failed switch base address to 0x%8x.\n",base_addr);
+			printf("Failed switch base address to 0x%8x.\n",set_base_addr);
 			success = 0;
 			goto exit;
 		}
@@ -670,16 +746,17 @@ retry_switch:
 			goto exit;
 		}
 
-		if ((qspi_base_addr != base_addr) && (retry < 3)) {
+		if ((qspi_base_addr != set_base_addr) && (retry < 3)) {
 			retry ++;
 			goto retry_switch;
 		}
 
 		if (retry >= 3) {
-			printf("Failed to retry switch new base 0x%08x.\n",base_addr);
+			printf("Failed to retry switch new base 0x%08x.\n",set_base_addr);
 			success = 0;
 			goto exit;
 		}
+		qspi_base_addr = set_base_addr;
 	}
 
 exit:
@@ -1149,16 +1226,18 @@ int main(int argc, char **argv)
        addr_set = 0, data_set = 0, show_base = 0,
 	   show_ft4222_ver = 0, dump_show = 0, dump_size = 0,
 	   string_send = 0, script_send = 0, binary_send = 0,
-	   i = 0, retCode = 0, found4222 = 0,
+	   i = 0, retCode = 0, found4222 = 0, ioVoltage_set = 0,
 	   next_option;  /* getopt iteration var */
-
+   double                    ft4222IOVoltage;
    FT_STATUS                 ftStatus;
    FT4222_STATUS             ft4222Status;
-   FT_HANDLE                 ftHandle = (FT_HANDLE)NULL;
+   FT_HANDLE                 ft4222AHandle = (FT_HANDLE)NULL;
+   FT_HANDLE                 ft4222BHandle = (FT_HANDLE)NULL;
    FT_DEVICE_LIST_INFO_NODE  *devInfo = NULL;
    FT4222_SPIClock           ftQspiClk = ft4222_convert_qspiclk(division); //Set QSPI CLK default CLK_DIV_128 80M/128=625Khz
    DWORD                     numDevs = 0;
-   DWORD                     ft4222_LocId;
+   DWORD                     ft4222A_LocId;
+   DWORD                     ft4222B_LocId;
    size_t                    strLength;
    char                      *strbuf = NULL;
    char                      *scriptFile= NULL, *binaryFile= NULL;
@@ -1213,13 +1292,14 @@ int main(int argc, char **argv)
             if ('A' == devInfo[i].Description[descLen - 1])
             {
 				// Interface A may be configured as an SPI master.
-				ft4222_LocId = devInfo[i].LocId;
-				break;
+				ft4222A_LocId = devInfo[i].LocId;
+				strcpy(ft4222A_desc, devInfo[i].Description);
             }
-            else
+            else if ('B' == devInfo[i].Description[descLen - 1])
             {
                 // Interface B, C or D.
-                // No need to repeat version info of same chip.
+                ft4222B_LocId = devInfo[i].LocId;
+				strcpy(ft4222B_desc, devInfo[i].Description);
             }
             found4222++;
         }
@@ -1276,8 +1356,12 @@ int main(int argc, char **argv)
 			strcpy(scriptFile,replace(optarg," ",""));
 			script_send = 1;
          break;
-      case 'v':
+      case 'V':
 			show_ft4222_ver = 1;
+		break;
+      case 'v':
+			ft4222IOVoltage = atof(optarg);
+			ioVoltage_set = 1;
 		break;
       case 'w':
 			write_op = 1;
@@ -1291,9 +1375,9 @@ int main(int argc, char **argv)
       }
    } while (next_option != -1);
 
-    ftStatus = FT_OpenEx((PVOID)(uintptr_t)ft4222_LocId,
+    ftStatus = FT_OpenEx((PVOID)(uintptr_t)ft4222A_LocId,
                          FT_OPEN_BY_LOCATION,
-                         &ftHandle);
+                         &ft4222AHandle);
     if (ftStatus != FT_OK)
     {
         printf("FT_OpenEx failed (error %d)\n",
@@ -1302,10 +1386,28 @@ int main(int argc, char **argv)
         goto exit;
     }
 
+    ftStatus = FT_OpenEx((PVOID)(uintptr_t)ft4222B_LocId,
+                         FT_OPEN_BY_LOCATION,
+                         &ft4222BHandle);
+    if (ftStatus != FT_OK)
+    {
+        printf("FT_OpenEx failed (error %d)\n",
+               (int)ftStatus);
+		retCode = ftStatus;
+        goto exit;
+    }
+
+	if (ioVoltage_set)
+	{
+		Config_Set_VIO(ft4222BHandle, ft4222IOVoltage);
+		printf("\nSetting QSPI IO Voltage %f done\n",(double)ft4222IOVoltage);
+	}
+
 	if (show_ft4222_ver)
 	{
 		printf("%s %s-%s\n", argv[0], FT4222_QSPI_TOOL_GIT_TAG, FT4222_QSPI_TOOL_GIT_COMMIT);
-		showVersion(ftHandle);
+		showVersion(ft4222AHandle,ft4222A_desc);
+		showVersion(ft4222BHandle,ft4222B_desc);
 	}
 
 	if (debug_printf)
@@ -1373,7 +1475,7 @@ int main(int argc, char **argv)
 
     // Configure the FT4222 as an SPI Master.
     ft4222Status = FT4222_SPIMaster_Init(
-                        ftHandle,
+                        ft4222AHandle,
                         SPI_IO_QUAD, // 4 channel
                         ftQspiClk, // 80 MHz / 128 == 625KHz
                         CLK_IDLE_LOW, // clock idles at logic 0
@@ -1386,10 +1488,10 @@ int main(int argc, char **argv)
         goto ft4222_exit;
     }
 
-    ft4222Status = FT4222_SPI_SetDrivingStrength(ftHandle,
-                                                 DS_4MA,
-                                                 DS_4MA,
-                                                 DS_4MA);
+    ft4222Status = FT4222_SPI_SetDrivingStrength(ft4222AHandle,
+                                                 DS_16MA,
+                                                 DS_16MA,
+                                                 DS_16MA);
     if (FT4222_OK != ft4222Status)
     {
         printf("FT4222_SPI_SetDrivingStrength failed (error %d)\n",
@@ -1398,36 +1500,37 @@ int main(int argc, char **argv)
     }
 
 	if (show_base) {
-		ft4222_qspi_get_base(ftHandle, &tmp_value);
+		ft4222_qspi_get_base(ft4222AHandle, &tmp_value);
 		printf("QSPI2AHB Current Base Address 0x%08x\n", tmp_value);
 	}
 	if (write_op) {
-		ft4222_qspi_memory_write_word(ftHandle, addr, data_value);
+		ft4222_qspi_memory_write_word(ft4222AHandle, addr, data_value);
 	}
 
 	if (string_send) {
-		ft4222_qspi_memory_write_string(ftHandle, addr, strbuf);
+		ft4222_qspi_memory_write_string(ft4222AHandle, addr, strbuf);
 	}
 
 	if (script_send) {
-		ft4222_qspi_memory_write_scriptfile(ftHandle, addr, scriptFile);
+		ft4222_qspi_memory_write_scriptfile(ft4222AHandle, addr, scriptFile);
 	}
 
 	if (binary_send) {
-		ft4222_qspi_memory_write_binaryfile(ftHandle, addr, binaryFile);
+		ft4222_qspi_memory_write_binaryfile(ft4222AHandle, addr, binaryFile);
 	}
 
 	if (read_op) {
-		ft4222_qspi_memory_read_word(ftHandle, addr, &tmp_value);
+		ft4222_qspi_memory_read_word(ft4222AHandle, addr, &tmp_value);
 		printf("%08x : %08x\n", addr, tmp_value);
 	}
 
 	if (dump_show) {
-		ft4222_qspi_memory_dump(ftHandle, addr, dump_size);
+		ft4222_qspi_memory_dump(ft4222AHandle, addr, dump_size);
 	}
 
 ft4222_exit:
-    (void)FT_Close(ftHandle);
+    (void)FT_Close(ft4222AHandle);
+    (void)FT_Close(ft4222BHandle);
 exit:
 	if (strbuf != NULL)
 		free(strbuf);
