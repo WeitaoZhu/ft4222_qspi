@@ -1219,7 +1219,7 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 	hex2data(bufPtr,buf_script,data_len);
 
 	max_cmd_times = (data_len/QSPI_CMD_WRITE_MAX);
-	process_times = (data_len%QSPI_CMD_WRITE_MAX) ? max_cmd_times : (max_cmd_times + 1);
+	process_times = (data_len%QSPI_CMD_WRITE_MAX) ? (max_cmd_times + 1) : max_cmd_times;
 
 	if (max_cmd_times) {
 		for (cmd_time = 0; cmd_time < max_cmd_times ; cmd_time++)
@@ -1286,10 +1286,13 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 	memset(bufPtr,0x0,filesize);
 	fread(bufPtr, sizeof(char), filesize, fp_binary);
 	fclose(fp_binary);
-	//printf("%s filesize %d \n",binary_file,(int)filesize);
 
 	max_cmd_times = (filesize/QSPI_CMD_WRITE_MAX);
-	process_times = (filesize%QSPI_CMD_WRITE_MAX) ? max_cmd_times : (max_cmd_times + 1);
+	process_times = ((filesize%QSPI_CMD_WRITE_MAX) != 0) ? (max_cmd_times + 1) : max_cmd_times ;
+
+	//printf("%s filesize %d \n",binary_file,(int)filesize);
+	//printf("max_cmd_times %d \n",max_cmd_times);
+	//printf("process_times %d \n",process_times);
 
 	if (max_cmd_times) {
 		for (cmd_time = 0; cmd_time < max_cmd_times; cmd_time++)
@@ -1358,7 +1361,7 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 	fclose(fp_binary);
 
 	max_cmd_times = (filesize/QSPI_CMD_READ_MAX);
-	process_times = (filesize%QSPI_CMD_READ_MAX) ? max_cmd_times : (max_cmd_times + 1);
+	process_times = (filesize%QSPI_CMD_READ_MAX) ? (max_cmd_times + 1) : max_cmd_times;
 
 	readbufPtr = malloc(process_times*QSPI_CMD_READ_MAX);
 	memset(readbufPtr,0x0,(process_times*QSPI_CMD_READ_MAX));
@@ -1426,7 +1429,7 @@ int main(int argc, char **argv)
 	   string_send = 0, script_send = 0, binary_send = 0,
 	   i = 0, retCode = 0, found4222 = 0, ioVoltage_set = 0, verify_set = 0,
 	   next_option;  /* getopt iteration var */
-   double                    ft4222IOVoltage;
+   double                    ft4222IOVoltage = 1.8;
    FT_STATUS                 ftStatus;
    FT4222_STATUS             ft4222Status;
    FT_HANDLE                 ft4222AHandle = (FT_HANDLE)NULL;
@@ -1570,6 +1573,7 @@ int main(int argc, char **argv)
 		break;
       case 'v':
 			ft4222IOVoltage = atof(optarg);
+			printf("\nSetting QSPI IO Voltage %f done\n",(double)ft4222IOVoltage);
 			ioVoltage_set = 1;
 		break;
       case 'w':
@@ -1612,7 +1616,6 @@ int main(int argc, char **argv)
 	if (ioVoltage_set)
 	{
 		Config_Set_VIO(ft4222BHandle, ft4222IOVoltage);
-		printf("\nSetting QSPI IO Voltage %f done\n",(double)ft4222IOVoltage);
 	}
 
 	if (show_ft4222_ver)
