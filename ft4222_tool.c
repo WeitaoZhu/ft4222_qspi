@@ -60,7 +60,7 @@ static int debug_printf=0, delay_cycle=QSPI_MULTI_WR_DELAY, io_Loading=DS_8MA;
 static uint32_t qspi_store_base=0x90000000;
 char ft4222A_desc[64];
 char ft4222B_desc[64];
-static const char *const short_options = "bghrVwya:B:D:d:l:L:p:s:S:v:";
+static const char *const short_options = "bhrVwya:B:D:d:g:l:L:p:s:S:v:";
 static const struct option long_options[] = {
    {"base", no_argument, NULL, 'b'},
    {"Binary", required_argument, NULL, 'B'},
@@ -68,7 +68,7 @@ static const struct option long_options[] = {
    {"addr", required_argument, NULL, 'a'},
    {"div", required_argument, NULL, 'd'},
    {"Data", required_argument, NULL, 'D'},
-   {"debug", no_argument, NULL, 'g'},
+   {"debug", required_argument, NULL, 'g'},
    {"delay", required_argument, NULL, 'l'},
    {"Load", required_argument, NULL, 'L'},
    {"dump", required_argument, NULL, 'p'},
@@ -438,7 +438,7 @@ static uint8_t ft4222_qspi_get_read_status(FT_HANDLE ftHandle)
 						1, //multiReadBytes = 0
 						&sizeOfRead);
 	msleep(1);
-	if (debug_printf) {
+	if (debug_printf == 's') {
 		printf("Get Status cmd:%02x\n",cmd[0]);
 		printf("Get Status:%02x\n",buffer[0]);
 		printf("\n");
@@ -465,7 +465,7 @@ static uint8_t ft4222_qspi_get_write_status(FT_HANDLE ftHandle)
 						1, //multiReadBytes = 0
 						&sizeOfRead);
 	msleep(1);
-	if (debug_printf) {
+	if (debug_printf == 's') {
 		printf("Get Status cmd:%02x\n",cmd[0]);
 		printf("Get Status:%02x\n",buffer[0]);
 		printf("\n");
@@ -521,7 +521,7 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
 	memcpy(writeBuffer, cmd, sizeof(cmd));
 	memcpy(writeBuffer + sizeof(cmd), buffer, bytes);
 
-	if (debug_printf) {
+	if (debug_printf == 'w') {
 		printf("[QSPI Write OP]\n");
 		printf("[CMD:%d bytes]\n",(int)sizeof(cmd));
 		for(row=0;row < sizeof(cmd); row++ )
@@ -618,7 +618,7 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
 	cmd[2] = (offset >> 10) & 0xFF;
 	cmd[3] = (offset >> 2) & 0xFF;
 
-	if (debug_printf) {
+	if (debug_printf == 'r') {
 		printf("[QSPI Read OP]\n");
 		printf("Read Request cmd:%02x %02x %02x %02x\n",cmd[0],cmd[1],cmd[2],cmd[3]);
 	}
@@ -680,7 +680,7 @@ next:
         goto exit;
     }
 
-	if (debug_printf) {
+	if (debug_printf == 'r') {
 		printf("Read Data cmd:%02x\n",cmd[0]);
 		printf("Read Data:");
 		for(cnt=0; cnt < sizeOfRead; cnt++)
@@ -982,12 +982,14 @@ static int ft4222_qspi_cmd_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *
 			{
 				if (swap_word)
 				{
-				    //printf("%08x ", swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
+					if ( debug_printf  == 'd')
+						printf("%08x ", swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
 					*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)) = \
 					swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)));
 				}
 			}
-			//printf("\n");
+			if ( debug_printf  == 'd')
+				printf("\n");
 		}
 
 		if (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))
@@ -998,12 +1000,14 @@ static int ft4222_qspi_cmd_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *
 			{
 				if (swap_word)
 				{
-				    //printf("%08x ", swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
+					if ( debug_printf  == 'd')
+						printf("%08x ", swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
 					*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)) = \
 					swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)));
 				}
 			}
-			//printf("\n");
+			if ( debug_printf  == 'd')
+				printf("\n");
 		}
 	}
 	else
@@ -1014,12 +1018,14 @@ static int ft4222_qspi_cmd_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *
 		{
 			if (swap_word)
 			{
-			    //printf("%08x ", swapLong(*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD))));
+				if ( debug_printf  == 'd')
+					printf("%08x ", swapLong(*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD))));
 				*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD)) = \
 				swapLong(*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD)));
 			}
 		}
-		//printf("\n");
+		if ( debug_printf  == 'd')
+			printf("\n");
 	}
 
 	memcpy(buffer, readbuffer, size);
@@ -1533,7 +1539,7 @@ int main(int argc, char **argv)
 		 ftQspiClk = ft4222_convert_qspiclk(division);
          break;
       case 'g':
-			debug_printf = 1;
+			debug_printf = atoi(optarg);
          break;
       case 'l':
 			delay_cycle = atoi(optarg);
@@ -1755,6 +1761,8 @@ int main(int argc, char **argv)
 
     if (verify_set && binary_send)
     {
+		if ( debug_printf  == 'd')
+			printf("Verify Dump Data:\n");
 		ft4222_qspi_memory_write_binaryfile_verify(ft4222AHandle, addr, binaryFile);
     }
 
