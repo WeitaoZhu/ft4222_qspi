@@ -1404,7 +1404,7 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 
 	if (bcmpcmpsize != 0)
 	{
-		printf("%s line%d: bcmp %d are different\n",__func__,__LINE__,bcmpcmpsize);
+		printf("%s line%d: bcmp %dbytes are different\n",__func__,__LINE__,(-bcmpcmpsize));
 		printf("Verify %s: NK\n",binary_file);
 		success = 0;
 		goto exit;
