@@ -1405,11 +1405,11 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 	if (bcmpcmpsize != 0)
 	{
 		printf("%s line%d: bcmp %dbytes are different\n",__func__,__LINE__,(-bcmpcmpsize));
-		printf("Verify %s: NK\n",binary_file);
+		printf("Verify: NK\n");
 		success = 0;
 		goto exit;
 	}
-	printf("Verify %s: OK\n",binary_file);
+	printf("Verify: OK\n");
 exit:
 	if (bufPtr != NULL)
 		free(bufPtr);
@@ -1752,7 +1752,6 @@ int main(int argc, char **argv)
 
     if (verify_set && binary_send)
     {
-		printf("Verify %s: \n",binaryFile);
 		ft4222_qspi_memory_write_binaryfile_verify(ft4222AHandle, addr, binaryFile);
     }
 
