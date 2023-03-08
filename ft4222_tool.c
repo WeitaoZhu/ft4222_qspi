@@ -149,7 +149,7 @@ static void msleep(unsigned int msecs)
 
 static void show_progress_bar(int cnt)
 {
-	printf("%2d%%\n",cnt);
+	printf("%3d%%\n",cnt);
 	printf("\033[1A");
 	printf("\r");
 	return;
@@ -1246,8 +1246,8 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 				success = 0;
 				goto exit;
 			}
-			show_progress_bar((cmd_time*100)/process_times);
 		}
+		show_progress_bar(100);
 	}
 	else
 	{
@@ -1319,8 +1319,8 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 				success = 0;
 				goto exit;
 			}
-			show_progress_bar((cmd_time*100)/process_times);
 		}
+		show_progress_bar(100);
 	}
 	else
 	{
@@ -1407,7 +1407,7 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 
 	if (bcmpcmpsize != 0)
 	{
-		printf("%s line%d: bcmp %dbytes are different\n",__func__,__LINE__,(-bcmpcmpsize));
+		printf("%s: bcmp %dbytes are different\n",__func__, (bcmpcmpsize < 0) ? (-bcmpcmpsize) : bcmpcmpsize);
 		printf("Verify: NK\n");
 		success = 0;
 		goto exit;
