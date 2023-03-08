@@ -981,24 +981,29 @@ static int ft4222_qspi_cmd_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *
 			for(col=0; col < QSPI_DUMP_COL_NUM; col++)
 			{
 				if (swap_word)
-					//swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)));
-				    printf("%08x ", swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
+				{
+				    //printf("%08x ", swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
+					*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)) = \
+					swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)));
+				}
 			}
-			printf("\n");
+			//printf("\n");
 		}
 
 		if (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))
 		{
-			//row++;
 			max_col = (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))/QSPI_DUMP_WORD;
 			//printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
 			for(col=0; col < max_col; col++)
 			{
 				if (swap_word)
-					//swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)));
-				    printf("%08x ", swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
+				{
+				    //printf("%08x ", swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
+					*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)) = \
+					swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)));
+				}
 			}
-			printf("\n");
+			//printf("\n");
 		}
 	}
 	else
@@ -1008,11 +1013,13 @@ static int ft4222_qspi_cmd_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *
 		for(col=0; col < max_col; col++)
 		{
 			if (swap_word)
-				//swapLong(*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD)));
-			    printf("%08x ", swapLong(*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD))));
-
+			{
+			    //printf("%08x ", swapLong(*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD))));
+				*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD)) = \
+				swapLong(*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD)));
+			}
 		}
-		printf("\n");
+		//printf("\n");
 	}
 
 	memcpy(buffer, readbuffer, size);
@@ -1330,9 +1337,9 @@ exit:
 
 static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32_t mem_addr, char *binary_file)
 {
-    int success = 1, cmd_time = 0, max_cmd_times = 0, process_times = 0;
+    int success = 1, cmd_time = 0, max_cmd_times = 0, process_times = 0 ,bcmpcmpsize = 0;
 	uint32_t qspi_addr = 0;
-	size_t filesize, memcmpsize;
+	size_t filesize;
 	uint8_t *bufPtr = NULL, *readbufPtr = NULL;
     FILE *fp_binary;
 
@@ -1393,11 +1400,11 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 		}
 	}
 
-	memcmpsize = memcmp(bufPtr,readbufPtr,filesize);
+	bcmpcmpsize = bcmp(bufPtr,readbufPtr,filesize);
 
-	if (filesize != memcmpsize)
+	if (bcmpcmpsize != 0)
 	{
-		printf("%s line%d: memcmp szie %d\n",__func__,__LINE__,(int)memcmpsize);
+		printf("%s line%d: bcmp %d are different\n",__func__,__LINE__,bcmpcmpsize);
 		printf("Verify %s: NK\n",binary_file);
 		success = 0;
 		goto exit;
