@@ -977,7 +977,8 @@ static int ft4222_qspi_cmd_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *
 
 		for(row=0; row < max_row; row++)
 		{
-			//printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
+			if ( debug_printf  == 'd')
+				printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
 			for(col=0; col < QSPI_DUMP_COL_NUM; col++)
 			{
 				if (swap_word)
@@ -995,7 +996,8 @@ static int ft4222_qspi_cmd_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *
 		if (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))
 		{
 			max_col = (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))/QSPI_DUMP_WORD;
-			//printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
+			if ( debug_printf  == 'd')
+				printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
 			for(col=0; col < max_col; col++)
 			{
 				if (swap_word)
@@ -1012,7 +1014,8 @@ static int ft4222_qspi_cmd_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *
 	}
 	else
 	{
-		//printf("%08x : ", mem_addr);
+		if ( debug_printf  == 'd')
+			printf("%08x : ", mem_addr);
 		max_col = (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))/QSPI_DUMP_WORD;
 		for(col=0; col < max_col; col++)
 		{
