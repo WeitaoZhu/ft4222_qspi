@@ -60,7 +60,7 @@ static int debug_printf=0, delay_cycle=QSPI_MULTI_WR_DELAY, io_Loading=DS_8MA;
 static uint32_t qspi_store_base=0x90000000;
 char ft4222A_desc[64];
 char ft4222B_desc[64];
-static const char *const short_options = "bhVrwga:B:D:d:l:L:p:s:S:v:";
+static const char *const short_options = "bghrVwya:B:D:d:l:L:p:s:S:v:";
 static const struct option long_options[] = {
    {"base", no_argument, NULL, 'b'},
    {"Binary", required_argument, NULL, 'B'},
@@ -78,6 +78,7 @@ static const struct option long_options[] = {
    {"write", no_argument, NULL, 'w'},
    {"Version", no_argument, NULL, 'V'},
    {"voltage", required_argument, NULL, 'v'},
+   {"verify", no_argument, NULL, 'y'},
    {NULL, no_argument, NULL, 0},
 };
 
@@ -99,7 +100,8 @@ static void print_usage(FILE * stream, char *app_name, int exit_code)
       " -S  --Script <text file>  QSPI Write with file context.\n"
       " -w  --write               Setting QSPI Write Operation.\n"
       " -V  --Version             Display FT4222 Chip version and LibFT4222 version.\n"
-      " -v  --voltage             Setting QSPI IO voltage .\n");
+      " -v  --voltage             Setting QSPI IO voltage .\n"
+      " -y  --verify              Verfiy QSPI Write binary file.\n");
  
    exit(exit_code);
 }
@@ -922,6 +924,102 @@ exit:
     return success;
 }
 
+static int ft4222_qspi_cmd_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *buffer, uint16_t size, int swap_word)
+{
+    int success = 1, row =0, col =0, max_row = 0, max_col =0, malloc_len =0;
+	uint8_t *readbuffer = NULL;
+	uint32_t start_base  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
+	uint32_t end_base  =((mem_addr + size)/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
+
+	if (size > QSPI_CMD_READ_MAX) {
+        printf("QSPI CMD Dump size %d exceed max %d.\n",(int)size ,QSPI_CMD_READ_MAX);
+		success = 0;
+        goto exit;
+	}
+
+	if ((start_base != end_base) && ((mem_addr + size)%QSPI_ACCESS_WINDOW)){
+        printf("QSPI CMD Dump from 0x%08x to 0x%08x, exceed next 32M windows 0x%08x.\n",mem_addr, (mem_addr + size), end_base);
+		success = 0;
+        goto exit;
+	}
+
+	if (size <= 4)
+		malloc_len = 4;
+	else if ((size > 4) && (size <= 16))
+		malloc_len = 16;
+	else if ((size > 16) && (size <= 32))
+		malloc_len = 32;
+	else if ((size > 32) && (size <= 64))
+		malloc_len = 64;
+	else if ((size > 64) && (size <= 128))
+		malloc_len = 128;
+	else if ((size > 128) && (size <= 256))
+		malloc_len = 256;
+	else {
+		printf("QSPI Write with string length %d exceed max 256.\n",size);
+		success = 0;
+		goto exit;
+	}
+
+	readbuffer = malloc(malloc_len);
+	memset(readbuffer,0x0,malloc_len);
+
+	if (!ft4222_qspi_memory_read(ftHandle, mem_addr, readbuffer, malloc_len))
+	{
+        printf("Failed to ft4222_qspi_memory_read 4 bytes.\n");
+		success = 0;
+        goto exit;
+	}
+
+	max_row = size/(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD);
+
+	if (max_row) {
+
+		for(row=0; row < max_row; row++)
+		{
+			//printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
+			for(col=0; col < QSPI_DUMP_COL_NUM; col++)
+			{
+				if (swap_word)
+					//swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)));
+				    printf("%08x ", swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
+			}
+			printf("\n");
+		}
+
+		if (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))
+		{
+			//row++;
+			max_col = (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))/QSPI_DUMP_WORD;
+			//printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
+			for(col=0; col < max_col; col++)
+			{
+				if (swap_word)
+					//swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)));
+				    printf("%08x ", swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
+			}
+			printf("\n");
+		}
+	}
+	else
+	{
+		//printf("%08x : ", mem_addr);
+		max_col = (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))/QSPI_DUMP_WORD;
+		for(col=0; col < max_col; col++)
+		{
+			if (swap_word)
+				//swapLong(*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD)));
+			    printf("%08x ", swapLong(*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD))));
+
+		}
+		printf("\n");
+	}
+
+	memcpy(buffer, readbuffer, size);
+exit:
+    return success;
+}
+
 static int ft4222_qspi_cmd_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *buffer, uint16_t size, int swap_word)
 {
     int success = 1;
@@ -1181,6 +1279,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 	memset(bufPtr,0x0,filesize);
 	fread(bufPtr, sizeof(char), filesize, fp_binary);
 	fclose(fp_binary);
+	//printf("%s filesize %d \n",binary_file,(int)filesize);
 
 	max_cmd_times = (filesize/QSPI_CMD_WRITE_MAX);
 	process_times = (filesize%QSPI_CMD_WRITE_MAX) ? max_cmd_times : (max_cmd_times + 1);
@@ -1229,13 +1328,96 @@ exit:
     return success;
 }
 
+static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32_t mem_addr, char *binary_file)
+{
+    int success = 1, cmd_time = 0, max_cmd_times = 0, process_times = 0;
+	uint32_t qspi_addr = 0;
+	size_t filesize, memcmpsize;
+	uint8_t *bufPtr = NULL, *readbufPtr = NULL;
+    FILE *fp_binary;
+
+    fp_binary =fopen(binary_file,"rb");
+	if (!fp_binary)
+	{
+		printf("cannot open file: %s \n",binary_file);
+		success = 0;
+		goto exit;
+	}
+
+	filesize = get_file_size(binary_file);
+	bufPtr = malloc(filesize);
+	memset(bufPtr,0x0,filesize);
+	fread(bufPtr, sizeof(char), filesize, fp_binary);
+	fclose(fp_binary);
+
+	max_cmd_times = (filesize/QSPI_CMD_READ_MAX);
+	process_times = (filesize%QSPI_CMD_READ_MAX) ? max_cmd_times : (max_cmd_times + 1);
+
+	readbufPtr = malloc(process_times*QSPI_CMD_READ_MAX);
+	memset(readbufPtr,0x0,(process_times*QSPI_CMD_READ_MAX));
+
+	if (max_cmd_times) {
+		for (cmd_time = 0; cmd_time < max_cmd_times; cmd_time++)
+		{
+			qspi_addr = mem_addr + (QSPI_CMD_READ_MAX * cmd_time);
+
+			if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr + (QSPI_CMD_READ_MAX * cmd_time), QSPI_CMD_READ_MAX , QSPI_SWAP_WORD))
+			{
+				printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
+				success = 0;
+				goto exit;
+			}
+		}
+
+		if (filesize%QSPI_CMD_READ_MAX)
+		{
+			qspi_addr = mem_addr + (QSPI_CMD_READ_MAX * cmd_time);
+
+			if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr + (QSPI_CMD_READ_MAX * cmd_time), filesize%QSPI_CMD_READ_MAX, QSPI_SWAP_WORD))
+			{
+				printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
+				success = 0;
+				goto exit;
+			}
+		}
+	}
+	else
+	{
+		qspi_addr = mem_addr;
+
+		if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr, filesize, QSPI_SWAP_WORD))
+		{
+			printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
+			success = 0;
+			goto exit;
+		}
+	}
+
+	memcmpsize = memcmp(bufPtr,readbufPtr,filesize);
+
+	if (filesize != memcmpsize)
+	{
+		printf("%s line%d: memcmp szie %d\n",__func__,__LINE__,(int)memcmpsize);
+		printf("Verify %s: NK\n",binary_file);
+		success = 0;
+		goto exit;
+	}
+	printf("Verify %s: OK\n",binary_file);
+exit:
+	if (bufPtr != NULL)
+		free(bufPtr);
+	if (readbufPtr != NULL)
+		free(readbufPtr);
+    return success;
+}
+
 int main(int argc, char **argv)
 {
    int division = QSPI_DEFAULT_DIV,write_op = 0, read_op = 0,
        addr_set = 0, data_set = 0, show_base = 0,
 	   show_ft4222_ver = 0, dump_show = 0, dump_size = 0,
 	   string_send = 0, script_send = 0, binary_send = 0,
-	   i = 0, retCode = 0, found4222 = 0, ioVoltage_set = 0,
+	   i = 0, retCode = 0, found4222 = 0, ioVoltage_set = 0, verify_set = 0,
 	   next_option;  /* getopt iteration var */
    double                    ft4222IOVoltage;
    FT_STATUS                 ftStatus;
@@ -1386,6 +1568,9 @@ int main(int argc, char **argv)
       case 'w':
 			write_op = 1;
          break;
+      case 'y':
+			verify_set = 1;
+         break;
       case '?':   /* Invalid options */
          print_usage(stderr, argv[0], EXIT_FAILURE);
       case -1:   /* Done with options */
@@ -1493,6 +1678,16 @@ int main(int argc, char **argv)
 	    }
     }
 
+    if (verify_set && binary_send)
+    {
+	    if (addr_set == 0)
+	    {
+			printf("ft4222 work in binary file verfiy mode,addr is missing\n");
+			retCode = -30;
+			goto ft4222_exit;
+	    }
+    }
+
     // Configure the FT4222 as an SPI Master.
     ft4222Status = FT4222_SPIMaster_Init(
                         ft4222AHandle,
@@ -1547,6 +1742,12 @@ int main(int argc, char **argv)
 	if (dump_show) {
 		ft4222_qspi_memory_dump(ft4222AHandle, addr, dump_size);
 	}
+
+    if (verify_set && binary_send)
+    {
+		printf("Verify %s: \n",binaryFile);
+		ft4222_qspi_memory_write_binaryfile_verify(ft4222AHandle, addr, binaryFile);
+    }
 
 ft4222_exit:
     (void)FT_Close(ft4222AHandle);
