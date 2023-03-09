@@ -30,14 +30,14 @@
 #define QSPI_SCRIPT_MAX_SIZE 4096
 #define QSPI_DUMP_COL_NUM    4
 #define QSPI_DUMP_WORD       4
-#define QSPI_MULTI_WR_DELAY  50
+#define QSPI_MULTI_WR_DELAY  10
 #define QSPI_MULTI_WR_RETRY  10
 #define QSPI_SWAP_WORD       1
 #define QSPI_NO_SWAP_WORD    0
 #define QSPI_STATUS_ENABLE   1
 
 
-#define QSPI_WR_READY             (1<<7)
+#define QSPI_WR_READY              0x80
 #define QSPI_WR_OP_MASK           (1<<7)
 #define QSPI_WRITE_OP             (1<<7)
 #define QSPI_READ_OP              (0<<7)
@@ -560,7 +560,7 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
     }
 
 	#if QSPI_STATUS_ENABLE
-	while(!(QSPI_WR_READY & (w_status = ft4222_qspi_get_read_status(ftHandle))))
+	while(!(QSPI_WR_READY == (w_status = ft4222_qspi_get_write_status(ftHandle))))
 	{
 		retry_times ++;
 		if (retry_times > QSPI_MULTI_WR_RETRY)
@@ -643,7 +643,7 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
     }
 
 	#if QSPI_STATUS_ENABLE
-	while(!(QSPI_WR_READY & (r_status = ft4222_qspi_get_read_status(ftHandle))))
+	while(!(QSPI_WR_READY == (r_status = ft4222_qspi_get_read_status(ftHandle))))
 	{
 		retry_times ++;
 		if (retry_times > QSPI_MULTI_WR_RETRY)
@@ -1278,7 +1278,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 {
     int success = 1, cmd_time = 0, max_cmd_times = 0, process_times = 0;
 	uint32_t qspi_addr = 0;
-	size_t filesize;
+	size_t filesize, malloc_len;
 	uint8_t *bufPtr = NULL;
     FILE *fp_binary;
 
@@ -1291,13 +1291,14 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 	}
 
 	filesize = get_file_size(binary_file);
-	bufPtr = malloc(filesize);
-	memset(bufPtr,0x0,filesize);
+	malloc_len = ((filesize/QSPI_DUMP_WORD) + ((filesize%QSPI_DUMP_WORD) ? 1 : 0 )) * QSPI_DUMP_WORD;
+	bufPtr = malloc(malloc_len);
+	memset(bufPtr,0x0,malloc_len);
 	fread(bufPtr, sizeof(char), filesize, fp_binary);
 	fclose(fp_binary);
 
-	max_cmd_times = (filesize/QSPI_CMD_WRITE_MAX);
-	process_times = ((filesize%QSPI_CMD_WRITE_MAX) != 0) ? (max_cmd_times + 1) : max_cmd_times ;
+	max_cmd_times = (malloc_len/QSPI_CMD_WRITE_MAX);
+	process_times = ((malloc_len%QSPI_CMD_WRITE_MAX) != 0) ? (max_cmd_times + 1) : max_cmd_times ;
 
 	//printf("%s filesize %d \n",binary_file,(int)filesize);
 	//printf("max_cmd_times %d \n",max_cmd_times);
@@ -1318,11 +1319,11 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 			msleep(delay_cycle);
 		}
 
-		if (filesize%QSPI_CMD_WRITE_MAX)
+		if (malloc_len%QSPI_CMD_WRITE_MAX)
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), filesize%QSPI_CMD_WRITE_MAX, QSPI_SWAP_WORD))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), malloc_len%QSPI_CMD_WRITE_MAX, QSPI_SWAP_WORD))
 			{
 				printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 				success = 0;
@@ -1335,7 +1336,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 	{
 		qspi_addr = mem_addr;
 
-		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, filesize, QSPI_SWAP_WORD))
+		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, malloc_len, QSPI_SWAP_WORD))
 		{
 			printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 			success = 0;
@@ -1351,7 +1352,7 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 {
     int success = 1, cmd_time = 0, max_cmd_times = 0, process_times = 0 ,bcmpcmpsize = 0;
 	uint32_t qspi_addr = 0;
-	size_t filesize;
+	size_t filesize, malloc_len;
 	uint8_t *bufPtr = NULL, *readbufPtr = NULL;
     FILE *fp_binary;
 
@@ -1364,13 +1365,14 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 	}
 
 	filesize = get_file_size(binary_file);
-	bufPtr = malloc(filesize);
-	memset(bufPtr,0x0,filesize);
+	malloc_len = ((filesize/QSPI_DUMP_WORD) + ((filesize%QSPI_DUMP_WORD) ? 1 : 0 )) * QSPI_DUMP_WORD;
+	bufPtr = malloc(malloc_len);
+	memset(bufPtr,0x0,malloc_len);
 	fread(bufPtr, sizeof(char), filesize, fp_binary);
 	fclose(fp_binary);
 
-	max_cmd_times = (filesize/QSPI_CMD_READ_MAX);
-	process_times = (filesize%QSPI_CMD_READ_MAX) ? (max_cmd_times + 1) : max_cmd_times;
+	max_cmd_times = (malloc_len/QSPI_CMD_READ_MAX);
+	process_times = (malloc_len%QSPI_CMD_READ_MAX) ? (max_cmd_times + 1) : max_cmd_times;
 
 	readbufPtr = malloc(process_times*QSPI_CMD_READ_MAX);
 	memset(readbufPtr,0x0,(process_times*QSPI_CMD_READ_MAX));
@@ -1388,11 +1390,11 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 			}
 		}
 
-		if (filesize%QSPI_CMD_READ_MAX)
+		if (malloc_len%QSPI_CMD_READ_MAX)
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_READ_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr + (QSPI_CMD_READ_MAX * cmd_time), filesize%QSPI_CMD_READ_MAX, QSPI_SWAP_WORD))
+			if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr + (QSPI_CMD_READ_MAX * cmd_time), malloc_len%QSPI_CMD_READ_MAX, QSPI_SWAP_WORD))
 			{
 				printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 				success = 0;
@@ -1404,7 +1406,7 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 	{
 		qspi_addr = mem_addr;
 
-		if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr, filesize, QSPI_SWAP_WORD))
+		if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr, malloc_len, QSPI_SWAP_WORD))
 		{
 			printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 			success = 0;
@@ -1582,6 +1584,11 @@ int main(int argc, char **argv)
 		break;
       case 'v':
 			ft4222IOVoltage = atof(optarg);
+			if ((ft4222IOVoltage < 1.5) || (ft4222IOVoltage > 3.3))
+			{
+				printf("QSPI IO Voltage %f is not @1.5 ~ 3.3V\n",ft4222IOVoltage);
+				print_usage(stderr, argv[0], EXIT_FAILURE);
+			}
 			printf("\nSetting QSPI IO Voltage %f done\n",(double)ft4222IOVoltage);
 			ioVoltage_set = 1;
 		break;
@@ -1599,6 +1606,12 @@ int main(int argc, char **argv)
          abort();
       }
    } while (next_option != -1);
+
+	if (!ioVoltage_set)
+	{
+		printf("QSPI IO voltage is not setting\n");
+		print_usage(stderr, argv[0], EXIT_FAILURE);
+	}
 
     ftStatus = FT_OpenEx((PVOID)(uintptr_t)ft4222A_LocId,
                          FT_OPEN_BY_LOCATION,
