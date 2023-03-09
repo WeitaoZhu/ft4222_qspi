@@ -1589,7 +1589,7 @@ int main(int argc, char **argv)
 				printf("QSPI IO Voltage %f is not @1.5 ~ 3.3V\n",ft4222IOVoltage);
 				print_usage(stderr, argv[0], EXIT_FAILURE);
 			}
-			printf("\nSetting QSPI IO Voltage %f done\n",(double)ft4222IOVoltage);
+			printf("Setting QSPI IO Voltage %f done\n",(double)ft4222IOVoltage);
 			ioVoltage_set = 1;
 		break;
       case 'w':
@@ -1647,7 +1647,7 @@ int main(int argc, char **argv)
 		showVersion(ft4222BHandle,ft4222B_desc);
 	}
 
-	if (debug_printf)
+	if (debug_printf == 'c')
 		printf("[QSPI CLK] %d Hz\n",QSPI_SYS_CLK/division);
 
     if (write_op)
@@ -1763,6 +1763,7 @@ int main(int argc, char **argv)
 	}
 
 	if (binary_send) {
+		printf("Loading  %s ......\n", binaryFile);
 		ft4222_qspi_memory_write_binaryfile(ft4222AHandle, addr, binaryFile);
 	}
 
@@ -1777,6 +1778,7 @@ int main(int argc, char **argv)
 
     if (verify_set && binary_send)
     {
+		printf("Verifing %s ......\n", binaryFile);
 		if ( debug_printf  == 'd')
 			printf("Verify Dump Data:\n");
 		ft4222_qspi_memory_write_binaryfile_verify(ft4222AHandle, addr, binaryFile);
