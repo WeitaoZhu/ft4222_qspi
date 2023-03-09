@@ -1388,6 +1388,7 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 				success = 0;
 				goto exit;
 			}
+			show_progress_bar((cmd_time*100)/process_times);
 		}
 
 		if (malloc_len%QSPI_CMD_READ_MAX)
@@ -1401,6 +1402,7 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 				goto exit;
 			}
 		}
+		show_progress_bar(100);
 	}
 	else
 	{
