@@ -30,8 +30,8 @@
 #define QSPI_SCRIPT_MAX_SIZE 4096
 #define QSPI_DUMP_COL_NUM    4
 #define QSPI_DUMP_WORD       4
-#define QSPI_MULTI_WR_DELAY  10
-#define QSPI_MULTI_WR_RETRY  10
+#define QSPI_MULTI_WR_DELAY  50
+#define QSPI_MULTI_WR_RETRY  50
 #define QSPI_SWAP_WORD       1
 #define QSPI_NO_SWAP_WORD    0
 #define QSPI_STATUS_ENABLE   1
@@ -559,21 +559,23 @@ static int ft4222_qspi_write_nword(FT_HANDLE ftHandle, unsigned int offset, uint
         goto exit;
     }
 
-	#if QSPI_STATUS_ENABLE
-	while(!(QSPI_WR_READY == (w_status = ft4222_qspi_get_write_status(ftHandle))))
+	if (debug_printf != 'S')
 	{
-		retry_times ++;
-		if (retry_times > QSPI_MULTI_WR_RETRY)
+		while(!(QSPI_WR_READY == (w_status = ft4222_qspi_get_write_status(ftHandle))))
 		{
-			printf("ft4222_qspi_get_write_status retry tiemout w_status %02x!\n",
-				   w_status);
-			success = 0;
-			goto exit;
+			retry_times ++;
+			if (retry_times > QSPI_MULTI_WR_RETRY)
+			{
+				printf("ft4222_qspi_get_write_status retry tiemout w_status %02x!\n",
+					   w_status);
+				success = 0;
+				goto exit;
+			}
+			//msleep(delay_cnt*delay_cycle);
+			msleep(delay_cycle);
 		}
-		//msleep(delay_cnt*delay_cycle);
-		msleep(delay_cycle);
 	}
-	#endif
+
 exit:
 	free(writeBuffer);
     return success;
@@ -642,21 +644,23 @@ static int ft4222_qspi_read_nword(FT_HANDLE ftHandle, unsigned int offset, uint8
         goto exit;
     }
 
-	#if QSPI_STATUS_ENABLE
-	while(!(QSPI_WR_READY == (r_status = ft4222_qspi_get_read_status(ftHandle))))
+	if (debug_printf != 'S')
 	{
-		retry_times ++;
-		if (retry_times > QSPI_MULTI_WR_RETRY)
+		while(!(QSPI_WR_READY == (r_status = ft4222_qspi_get_read_status(ftHandle))))
 		{
-			printf("ft4222_qspi_get_read_status retry tiemout r_status %02x!\n",
-				   r_status);
-			success = 0;
-			goto next;
+			retry_times ++;
+			if (retry_times > QSPI_MULTI_WR_RETRY)
+			{
+				printf("ft4222_qspi_get_read_status retry tiemout r_status %02x!\n",
+					   r_status);
+				success = 0;
+				goto next;
+			}
+			//msleep(delay_cnt*delay_cycle);
+			msleep(delay_cycle);
 		}
-		//msleep(delay_cnt*delay_cycle);
-		msleep(delay_cycle);
 	}
-	#endif
+
 next:
     //Send Read Data
 	cmd[0] = QSPI_READ_OP | QSPI_TRANS_DATA | QSPI_WAIT_CYCLE(0) | data_length;
@@ -718,7 +722,8 @@ static int ft4222_qspi_check_base(FT_HANDLE ftHandle, uint32_t mem_addr)
 	uint32_t qspi_base_addr =0;
 	uint32_t set_base_addr  =(mem_addr/QSPI_ACCESS_WINDOW) * QSPI_ACCESS_WINDOW;
 
-	if (qspi_store_base != set_base_addr)
+	//if (qspi_store_base != set_base_addr)
+	if (qspi_base_addr != set_base_addr)
 	{
 		if (!ft4222_qspi_get_base(ftHandle, &qspi_base_addr))
 		{
