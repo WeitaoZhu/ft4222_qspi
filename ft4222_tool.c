@@ -32,7 +32,9 @@
 #define QSPI_DUMP_WORD       4
 #define QSPI_MULTI_WR_DELAY  50
 #define QSPI_MULTI_WR_RETRY  50
-#define QSPI_SWAP_WORD       1
+#define QSPI_W_SWAP_WORD     1
+#define QSPI_R_SWAP_WORD     2
+#define QSPI_WR_SWAP_WORD    3
 #define QSPI_NO_SWAP_WORD    0
 #define QSPI_STATUS_ENABLE   1
 
@@ -58,9 +60,10 @@ GPIO_Dir gpioDir[4] = {GPIO_INPUT, GPIO_INPUT, GPIO_INPUT, GPIO_INPUT};
 
 static int debug_printf=0, delay_cycle=QSPI_MULTI_WR_DELAY, io_Loading=DS_8MA;
 static uint32_t qspi_store_base=0x90000000;
+static int qspi_swapword = QSPI_WR_SWAP_WORD;
 char ft4222A_desc[64];
 char ft4222B_desc[64];
-static const char *const short_options = "bhrVwya:B:D:d:g:l:L:p:s:S:v:";
+static const char *const short_options = "bhrVwya:B:D:d:g:l:L:p:s:S:W:v:";
 static const struct option long_options[] = {
    {"base", no_argument, NULL, 'b'},
    {"Binary", required_argument, NULL, 'B'},
@@ -76,6 +79,7 @@ static const struct option long_options[] = {
    {"string", required_argument, NULL, 's'},
    {"Script", required_argument, NULL, 'S'},
    {"write", no_argument, NULL, 'w'},
+   {"swapWord", required_argument, NULL, 'W'},
    {"Version", no_argument, NULL, 'V'},
    {"voltage", required_argument, NULL, 'v'},
    {"verify", no_argument, NULL, 'y'},
@@ -89,9 +93,16 @@ static void print_usage(FILE * stream, char *app_name, int exit_code)
       " -a  --addr <address>      Setting QSPI access address.\n"
       " -b  --base                Display SPI2AHB Base Address.\n"
       " -B  --Binary <file>       QSPI Write with binary file.\n"
-      " -d  --div <division>      Setting QSPI CLOCK with 80MHz/<division>.\n"
+      " -d  --div <division>      Setting QSPI CLOCK with 80MHz/<division>.\n"\
+      "                           2/4/8/16/32/64/128/256/512.\n"
       " -D  --Data <value>        Setting QSPI Send data value.\n"
-      " -g  --debug               Display QSPI W/R Send Data Info.\n"
+      " -g  --debug <value>       Display QSPI W/R Send Data Info.\n"
+      "                           83: Check Read STATUS Command Log.\n"
+      "                           99: Check QSPI Clock Info.\n"
+      "                           100: Check Read Dump Log.\n"
+      "                           114: Check Read Command Log.\n"
+      "                           115: Check Write STATUS Command Log.\n"
+      "                           119: Check Write Command Log.\n"
       " -h  --help                Display this usage information.\n"
 	  " -l  --delay               Setting QSPI CMD Send Operation Delay.\n"
       " -p  --dump <size>         Dump Address size Context.\n"
@@ -99,8 +110,13 @@ static void print_usage(FILE * stream, char *app_name, int exit_code)
       " -s  --string <string>     QSPI Write with string.\n"
       " -S  --Script <text file>  QSPI Write with file context.\n"
       " -w  --write               Setting QSPI Write Operation.\n"
+      " -W  --swapWord <swap>     Setting QSPI Write/Read Word format is MSB or LSB.\n"
+      "                           W/R Both Word NoSwap(0x0);\n"
+      "                           Write Word Swap(0x1);\n"
+      "                           Read Word Swap(0x2);\n"
+      "                           W/R Both Word Swap(0x3);\n"
       " -V  --Version             Display FT4222 Chip version and LibFT4222 version.\n"
-      " -v  --voltage             Setting QSPI IO voltage .\n"
+      " -v  --voltage             Setting QSPI IO voltage from 1.5V ~3.3V.\n"
       " -y  --verify              Verfiy QSPI Write binary file.\n");
  
    exit(exit_code);
@@ -986,12 +1002,17 @@ static int ft4222_qspi_cmd_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *
 				printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
 			for(col=0; col < QSPI_DUMP_COL_NUM; col++)
 			{
-				if (swap_word)
+				if (swap_word & QSPI_R_SWAP_WORD)
 				{
 					if ( debug_printf  == 'd')
 						printf("%08x ", swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
 					*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)) = \
 					swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)));
+				}
+				else
+				{
+					if ( debug_printf  == 'd')
+						printf("%08x ", *((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)));
 				}
 			}
 			if ( debug_printf  == 'd')
@@ -1005,12 +1026,17 @@ static int ft4222_qspi_cmd_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *
 				printf("%08x : ", mem_addr + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM));
 			for(col=0; col < max_col; col++)
 			{
-				if (swap_word)
+				if (swap_word & QSPI_R_SWAP_WORD)
 				{
 					if ( debug_printf  == 'd')
 						printf("%08x ", swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD))));
 					*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)) = \
 					swapLong(*((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)));
+				}
+				else
+				{
+					if ( debug_printf  == 'd')
+						printf("%08x ", *((uint32_t *)(readbuffer + (row*QSPI_DUMP_WORD*QSPI_DUMP_COL_NUM) + col*QSPI_DUMP_WORD)));
 				}
 			}
 			if ( debug_printf  == 'd')
@@ -1024,12 +1050,17 @@ static int ft4222_qspi_cmd_read(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t *
 		max_col = (size%(QSPI_DUMP_COL_NUM*QSPI_DUMP_WORD))/QSPI_DUMP_WORD;
 		for(col=0; col < max_col; col++)
 		{
-			if (swap_word)
+			if (swap_word & QSPI_R_SWAP_WORD)
 			{
 				if ( debug_printf  == 'd')
 					printf("%08x ", swapLong(*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD))));
 				*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD)) = \
 				swapLong(*((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD)));
+			}
+			else
+			{
+				if ( debug_printf  == 'd')
+					printf("%08x ", *((uint32_t *)(readbuffer + col*QSPI_DUMP_WORD)));
 			}
 		}
 		if ( debug_printf  == 'd')
@@ -1084,7 +1115,7 @@ static int ft4222_qspi_cmd_write(FT_HANDLE ftHandle, uint32_t mem_addr, uint8_t 
 	memset(bufPtr,0x0,malloc_len);
 	memcpy(bufPtr,buffer,size);
 
-	if (swap_word)
+	if (swap_word & QSPI_W_SWAP_WORD)
 	{
 		for(cnt =0; cnt < malloc_len/QSPI_DUMP_WORD;cnt++)
 		{
@@ -1186,7 +1217,7 @@ static int ft4222_qspi_memory_write_string(FT_HANDLE ftHandle, uint32_t mem_addr
 	memset(bufPtr,0x0,data_len);
 	hex2data(bufPtr,strbuf,data_len);
 
-	if (!ft4222_qspi_cmd_write(ftHandle, mem_addr, bufPtr, data_len, QSPI_NO_SWAP_WORD))
+	if (!ft4222_qspi_cmd_write(ftHandle, mem_addr, bufPtr, data_len, qspi_swapword))
 	{
 		printf("Failed to ft4222_qspi_cmd_write.\n");
 		success = 0;
@@ -1240,7 +1271,7 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), QSPI_CMD_WRITE_MAX, QSPI_NO_SWAP_WORD))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), QSPI_CMD_WRITE_MAX, qspi_swapword))
 			{
 				printf("Failed to ft4222_qspi_cmd_write.\n");
 				success = 0;
@@ -1254,7 +1285,7 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), data_len%QSPI_CMD_WRITE_MAX, QSPI_NO_SWAP_WORD))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), data_len%QSPI_CMD_WRITE_MAX, qspi_swapword))
 			{
 				printf("Failed to ft4222_qspi_cmd_write.\n");
 				success = 0;
@@ -1267,7 +1298,7 @@ static int ft4222_qspi_memory_write_scriptfile(FT_HANDLE ftHandle, uint32_t mem_
 	{
 		qspi_addr = mem_addr;
 
-		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, data_len, QSPI_NO_SWAP_WORD))
+		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, data_len, qspi_swapword))
 		{
 			printf("Failed to ft4222_qspi_cmd_write.\n");
 			success = 0;
@@ -1314,7 +1345,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), QSPI_CMD_WRITE_MAX , QSPI_SWAP_WORD))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), QSPI_CMD_WRITE_MAX , qspi_swapword))
 			{
 				printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 				success = 0;
@@ -1328,7 +1359,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_WRITE_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), malloc_len%QSPI_CMD_WRITE_MAX, QSPI_SWAP_WORD))
+			if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr + (QSPI_CMD_WRITE_MAX * cmd_time), malloc_len%QSPI_CMD_WRITE_MAX, qspi_swapword))
 			{
 				printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 				success = 0;
@@ -1341,7 +1372,7 @@ static int ft4222_qspi_memory_write_binaryfile(FT_HANDLE ftHandle, uint32_t mem_
 	{
 		qspi_addr = mem_addr;
 
-		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, malloc_len, QSPI_SWAP_WORD))
+		if (!ft4222_qspi_cmd_write(ftHandle, qspi_addr, bufPtr, malloc_len, qspi_swapword))
 		{
 			printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 			success = 0;
@@ -1387,7 +1418,7 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_READ_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr + (QSPI_CMD_READ_MAX * cmd_time), QSPI_CMD_READ_MAX , QSPI_SWAP_WORD))
+			if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr + (QSPI_CMD_READ_MAX * cmd_time), QSPI_CMD_READ_MAX , qspi_swapword))
 			{
 				printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 				success = 0;
@@ -1400,7 +1431,7 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 		{
 			qspi_addr = mem_addr + (QSPI_CMD_READ_MAX * cmd_time);
 
-			if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr + (QSPI_CMD_READ_MAX * cmd_time), malloc_len%QSPI_CMD_READ_MAX, QSPI_SWAP_WORD))
+			if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr + (QSPI_CMD_READ_MAX * cmd_time), malloc_len%QSPI_CMD_READ_MAX, qspi_swapword))
 			{
 				printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 				success = 0;
@@ -1413,7 +1444,7 @@ static int ft4222_qspi_memory_write_binaryfile_verify(FT_HANDLE ftHandle, uint32
 	{
 		qspi_addr = mem_addr;
 
-		if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr, malloc_len, QSPI_SWAP_WORD))
+		if (!ft4222_qspi_cmd_read(ftHandle, qspi_addr, readbufPtr, malloc_len, qspi_swapword))
 		{
 			printf("%s line%d:Failed to ft4222_qspi_cmd_write address 0x%08x.\n",__func__,__LINE__,qspi_addr);
 			success = 0;
@@ -1601,6 +1632,9 @@ int main(int argc, char **argv)
 		break;
       case 'w':
 			write_op = 1;
+         break;
+      case 'W':
+			qspi_swapword = atoi(optarg);
          break;
       case 'y':
 			verify_set = 1;
